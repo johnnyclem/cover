@@ -10,12 +10,42 @@ const xcode_1 = require("./xcode");
 const coverage_1 = require("./coverage");
 const ui_1 = require("./ui");
 const agent_1 = require("./agent");
+const fixer_1 = require("./fixer");
+const llm_1 = require("./llm");
 const inquirer_1 = __importDefault(require("inquirer"));
 const program = new commander_1.Command();
 program
     .name('cover')
     .description('Automated TDD/Coverage loop for iOS/macOS')
-    .version('1.0.0')
+    .version('1.0.0');
+program.command('fix')
+    .description('Run tests and autonomously fix failures using AI')
+    .option('-s, --scheme <scheme>', 'Xcode scheme to test')
+    .option('-d, --destination <destination>', 'Simulator destination')
+    .option('-r, --retries <number>', 'Max retries', '3')
+    .action(async (options) => {
+    try {
+        await (0, llm_1.setupLLM)();
+        let scheme = options.scheme;
+        if (!scheme) {
+            const answers = await inquirer_1.default.prompt([{
+                    type: 'input',
+                    name: 'scheme',
+                    message: 'Enter the Xcode Scheme to test:',
+                    validate: (input) => input ? true : 'Scheme is required'
+                }]);
+            scheme = answers.scheme;
+        }
+        await (0, fixer_1.runTestFixLoop)(scheme, options.destination, parseInt(options.retries));
+    }
+    catch (error) {
+        ui_1.logger.error(error.message || error);
+        process.exit(1);
+    }
+});
+program
+    .command('check', { isDefault: true })
+    .description('Check code coverage (default)')
     .option('-s, --scheme <scheme>', 'Xcode scheme to test')
     .option('-b, --branch <branch>', 'Base branch to compare against', 'main')
     .option('-t, --threshold <number>', 'Coverage threshold percentage', '80')
