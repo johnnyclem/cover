@@ -108,24 +108,24 @@ export const runXcodeTests = async (scheme: string, destination: string | undefi
 
       if (choices.length === 0) {
           logger.warn('No destinations found via xcodebuild.');
-          // If no destinations found, prompt for manual entry directly or default?
-          // Let's still show the manual entry prompt to avoid blocking the user
           const answer = await inquirer.prompt([{
-              type: 'list',
+              type: 'rawlist',
               name: 'destination',
               message: 'No simulators detected. Select an action:',
               choices: [{ name: 'Use Default (iPhone 17 Pro)', value: 'platform=iOS Simulator,name=iPhone 17 Pro' }, { name: 'Enter destination manually...', value: manualEntryValue }],
           }]);
           selectedDestination = answer.destination;
       } else {
-          const defaultChoice = choices.find(c => c.name.includes('iPhone 17 Pro'));
+          // Find index of default choice to set as default in rawlist (indices are 0-based in config, displayed as 1-based)
+          const defaultIndex = choices.findIndex(c => c.name.includes('iPhone 17 Pro'));
+          
           const answer = await inquirer.prompt([{
-              type: 'list',
+              type: 'rawlist',
               name: 'destination',
-              message: 'Select a simulator destination:',
+              message: 'Select a simulator destination (type the number):',
               choices: promptChoices,
-              default: defaultChoice ? defaultChoice.value : undefined,
-              pageSize: 10
+              default: defaultIndex >= 0 ? defaultIndex : undefined,
+              pageSize: 15
           }]);
           selectedDestination = answer.destination;
       }
@@ -134,10 +134,19 @@ export const runXcodeTests = async (scheme: string, destination: string | undefi
           const manualAnswer = await inquirer.prompt([{
               type: 'input',
               name: 'customDestination',
-              message: 'Enter destination string (e.g., "platform=iOS Simulator,name=iPhone 17 Pro"):',
-              validate: (input) => input.trim().length > 0 ? true : 'Destination cannot be empty.'
+              message: 'Enter device name (e.g. "iPhone 17 Pro"):',
+              validate: (input) => input.trim().length > 0 ? true : 'Device name cannot be empty.'
           }]);
-          selectedDestination = manualAnswer.customDestination;
+          
+          let input = manualAnswer.customDestination.trim();
+          
+          // Smart formatting: If the user didn't provide the full platform string, build it for them.
+          if (!input.includes('platform=')) {
+              // Remove "platform=iOS Simulator,name=" if they half-typed it to be safe, though unlikely.
+              // Just treat the whole string as the name.
+              input = `platform=iOS Simulator,name=${input}`;
+          }
+          selectedDestination = input;
       }
   }
   
