@@ -12,12 +12,24 @@ const ui_1 = require("./ui");
 const agent_1 = require("./agent");
 const fixer_1 = require("./fixer");
 const llm_1 = require("./llm");
+const init_1 = require("./init");
 const inquirer_1 = __importDefault(require("inquirer"));
 const program = new commander_1.Command();
 program
     .name('cover')
     .description('Automated TDD/Coverage loop for iOS/macOS')
     .version('1.0.0');
+program.command('init [path]')
+    .description('Initialize Cover in a project directory')
+    .action(async (path) => {
+    try {
+        await (0, init_1.runInit)(path || '.');
+    }
+    catch (error) {
+        ui_1.logger.error(error.message || error);
+        process.exit(1);
+    }
+});
 program.command('fix')
     .description('Run tests and autonomously fix failures using AI')
     .option('-s, --scheme <scheme>', 'Xcode scheme to test')
