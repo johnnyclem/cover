@@ -5,9 +5,10 @@ import { runXcodeTests, getCoverageData } from './xcode';
 import { processCoverage } from './coverage';
 import { printCoverageTable, logger, spinner } from './ui';
 import { selectAgent, generatePrompt, runAgent } from './agent';
-import { runTestFixLoop } from './fixer';
+import { runTestFixLoop, fixFailure } from './fixer';
 import { setupLLM } from './llm';
 import { runInit } from './init';
+import { getTestFailures } from './results';
 import inquirer from 'inquirer';
 
 const program = new Command();
@@ -79,6 +80,9 @@ program
       }
 
       logger.info(`Found ${changedFiles.length} changed file(s) on ${currentBranch} vs ${options.branch}`);
+      
+      // Setup LLM early if user wants to use agent features
+      await setupLLM();
 
       // Main Loop
       let allPassed = false;
@@ -88,8 +92,6 @@ program
         // 2. Ask user for Scheme if not provided
         let scheme = options.scheme;
         if (!scheme) {
-            // In a real app we'd parse .xcodeproj to list schemes, 
-            // but for now we ask the user to type it or we default if possible.
             const answers = await inquirer.prompt([{
                 type: 'input',
                 name: 'scheme',
@@ -97,7 +99,6 @@ program
                 validate: (input) => input ? true : 'Scheme is required'
             }]);
             scheme = answers.scheme;
-            // save for next loop iteration to avoid re-asking
             options.scheme = scheme; 
         }
 
@@ -106,14 +107,47 @@ program
         const xcresultPath = result.xcresultPath;
         destination = result.selectedDestination;
         
-        // 4. Get Data
+        // 4. Check for Failures
+        const testFailures = await getTestFailures(xcresultPath);
+        if (testFailures.length > 0) {
+            logger.error(`Found ${testFailures.length} test failure(s).`);
+            
+            // Ask user if they want to fix failures first
+            const { fixAction } = await inquirer.prompt([{
+                type: 'list',
+                name: 'fixAction',
+                message: 'Tests failed. What would you like to do?',
+                choices: [
+                    'Auto-Fix Failures with AI',
+                    'Ignore and Check Coverage',
+                    'Exit'
+                ]
+            }]);
+            
+            if (fixAction === 'Exit') break;
+            
+            if (fixAction === 'Auto-Fix Failures with AI') {
+                // Try to fix the first failure
+                const failure = testFailures[0];
+                logger.info(`Attempting to fix: ${failure.testCaseName} in ${failure.fileName}`);
+                const fixed = await fixFailure(failure);
+                if (fixed) {
+                    logger.success('Fix applied! Re-running tests...');
+                    continue; // Loop again
+                } else {
+                    logger.warn('Could not fix failure.');
+                }
+            }
+        }
+        
+        // 5. Get Data
         const coverageJson = await getCoverageData(xcresultPath);
         
-        // 5. Evaluate
+        // 6. Evaluate
         const report = processCoverage(coverageJson, changedFiles);
         printCoverageTable(report);
 
-        // 6. Check Threshold
+        // 7. Check Threshold
         const failedFiles = report.filter(f => f.lineCoverage < parseFloat(options.threshold));
         
         if (failedFiles.length === 0) {
@@ -124,7 +158,7 @@ program
 
         logger.warn(`${failedFiles.length} file(s) are below the ${options.threshold}% threshold.`);
 
-        // 7. Iterate / Agent
+        // 8. Iterate / Agent
         const { action } = await inquirer.prompt([
             {
                 type: 'list',
@@ -142,12 +176,10 @@ program
             break;
         } else if (action === 'Generate Tests with Agent') {
             const agent = await selectAgent();
-            // We can only handle one file at a time effectively in this loop prototype
-            // or loop through them. Let's pick the worst one first.
             const targetFile = failedFiles.sort((a, b) => a.lineCoverage - b.lineCoverage)[0];
             
             logger.info(`Targeting ${targetFile.path} (${targetFile.lineCoverage.toFixed(1)}%)`);
-            const prompt = generatePrompt(targetFile.path); // path might be relative/absolute issue here.
+            const prompt = generatePrompt(targetFile.path); 
             
             await runAgent(agent, prompt);
         }

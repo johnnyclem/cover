@@ -8,6 +8,7 @@ const inquirer_1 = __importDefault(require("inquirer"));
 const execa_1 = require("execa");
 const fs_1 = __importDefault(require("fs"));
 const ui_1 = require("./ui");
+const llm_1 = require("./llm");
 const selectAgent = async () => {
     const answer = await inquirer_1.default.prompt([
         {
@@ -15,6 +16,7 @@ const selectAgent = async () => {
             name: 'agent',
             message: 'Select an AI agent to generate tests:',
             choices: [
+                'Internal Auto-Generate',
                 'opencode',
                 'claude-code',
                 'codex-cli',
@@ -53,6 +55,10 @@ Return only the Swift code for the test file.
 };
 exports.generatePrompt = generatePrompt;
 const runAgent = async (agentName, prompt) => {
+    if (agentName === 'Internal Auto-Generate') {
+        await generateInternal(prompt);
+        return;
+    }
     if (agentName === 'Manual (Copy Prompt)') {
         console.log('\n--- PROMPT START ---');
         console.log(prompt);
@@ -64,20 +70,8 @@ const runAgent = async (agentName, prompt) => {
         return;
     try {
         ui_1.logger.info(`Running ${agentName}...`);
-        // This is a naive implementation assuming the agent takes the prompt as an argument or via stdin
-        // Adjust based on actual CLI tool signatures.
-        // For now, we assume standard "tool 'prompt'" or similar.
-        // Since these tools vary wildly, we might just print the prompt for now unless we know the specific flag.
-        // Fallback to manual for safety in this prototype unless user explicitly configured it
-        // But the requirements asked to support it.
-        // Let's assume 'opencode' takes a prompt string.
         if (agentName === 'opencode') {
-            // Opencode might be interactive, so 'inherit' stdio is good.
-            // But passing a prompt via CLI arg might be: opencode --prompt "..."
-            // Or just opencode and let user paste.
             ui_1.logger.warn(`Launching ${agentName}. Please paste the prompt if needed or interact naturally.`);
-            // We can't easily feed the prompt to an interactive session without more complex logic.
-            // Copying to clipboard might be a nice touch if we had 'clipboardy'.
             console.log('\n--- PROMPT ---');
             console.log(prompt);
             console.log('--------------\n');
@@ -93,3 +87,34 @@ const runAgent = async (agentName, prompt) => {
     }
 };
 exports.runAgent = runAgent;
+const generateInternal = async (prompt) => {
+    try {
+        const fixer = (0, llm_1.getFixerClient)();
+        const spin = (0, ui_1.spinner)(`Generating tests with ${fixer.model}...`).start();
+        const response = await fixer.client.chat.completions.create({
+            model: fixer.model,
+            messages: [{ role: 'user', content: prompt }]
+        });
+        let code = response.choices[0].message.content || '';
+        code = code.replace(/```swift/g, '').replace(/```/g, '').trim();
+        spin.succeed('Tests generated.');
+        // Ask where to save
+        const answer = await inquirer_1.default.prompt([{
+                type: 'input',
+                name: 'path',
+                message: 'Where should I save the test file?',
+                default: 'Tests/GeneratedTests.swift',
+                validate: (input) => input.endsWith('.swift') ? true : 'Must be a .swift file'
+            }]);
+        // Ensure directory exists
+        const dir = answer.path.substring(0, answer.path.lastIndexOf('/'));
+        if (dir && !fs_1.default.existsSync(dir)) {
+            fs_1.default.mkdirSync(dir, { recursive: true });
+        }
+        fs_1.default.writeFileSync(answer.path, code);
+        ui_1.logger.success(`Tests saved to ${answer.path}`);
+    }
+    catch (e) {
+        ui_1.logger.error(`Generation failed: ${e.message}`);
+    }
+};

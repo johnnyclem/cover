@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.runTestFixLoop = void 0;
+exports.fixFailure = exports.runTestFixLoop = void 0;
 const fs_1 = __importDefault(require("fs"));
 const xcode_1 = require("./xcode");
 const results_1 = require("./results");
@@ -32,7 +32,7 @@ const runTestFixLoop = async (scheme, destination, maxRetries = 3) => {
         // Fix the first one
         const failure = failures[0];
         ui_1.logger.info(`Attempting to fix: ${failure.testCaseName} in ${failure.fileName}`);
-        const fixed = await fixFailure(failure);
+        const fixed = await (0, exports.fixFailure)(failure);
         if (!fixed) {
             ui_1.logger.warn('Could not fix failure. Stopping loop.');
             break;
@@ -109,3 +109,4 @@ ${fileContent}
         return false;
     }
 };
+exports.fixFailure = fixFailure;

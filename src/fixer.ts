@@ -50,7 +50,7 @@ export const runTestFixLoop = async (scheme: string, destination: string | undef
     }
 };
 
-const fixFailure = async (failure: TestFailure): Promise<boolean> => {
+export const fixFailure = async (failure: TestFailure): Promise<boolean> => {
     if (!fs.existsSync(failure.fileName)) {
         logger.warn(`File not found: ${failure.fileName}`);
         return false;
