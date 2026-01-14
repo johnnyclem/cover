@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import { glob } from 'glob';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { logger, spinner } from './ui';
 import inquirer from 'inquirer';
@@ -74,13 +75,8 @@ export const runXcodeTests = async (scheme: string, destination: string | undefi
   logger.step(`Preparing tests for scheme: ${scheme}`);
   
   // Create a temporary derived data path to easily locate logs/results
-  const derivedDataPath = path.resolve('./derived_data_temp');
-  const resultBundlePath = `${derivedDataPath}/TestResult.xcresult`;
-
-  // Clean up previous result bundle to avoid "Existing file" error
-  if (fs.existsSync(resultBundlePath)) {
-    fs.rmSync(resultBundlePath, { recursive: true, force: true });
-  }
+  const derivedDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cover-derived-data-'));
+  const resultBundlePath = path.join(derivedDataPath, 'TestResult.xcresult');
 
   const baseArgs = await detectBaseArgs(projectPath, workspacePath);
 
@@ -94,15 +90,15 @@ export const runXcodeTests = async (scheme: string, destination: string | undefi
       testSpinner.stop();
       
       if (choices.length === 0) {
-          selectedDestination = 'platform=iOS Simulator,name=iPhone 15';
-          logger.warn('No destinations found via xcodebuild. Defaulting to iPhone 15.');
+          selectedDestination = 'platform=iOS Simulator,name=iPhone 17 Pro';
+          logger.warn('No destinations found via xcodebuild. Defaulting to iPhone 17 Pro.');
       } else {
           const answer = await inquirer.prompt([{
               type: 'list',
               name: 'destination',
               message: 'Select a simulator destination:',
               choices: choices,
-              default: choices.find(c => c.includes('iPhone 15'))
+              default: choices.find(c => c.includes('iPhone 17 Pro'))
           }]);
           selectedDestination = answer.destination;
       }
