@@ -3,21 +3,21 @@ import { TestingFrameworkConfig, TestRunResult, CoverageReport, TestFailure } fr
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-export class JestFramework extends BaseFramework {
+export class VitestFramework extends BaseFramework {
   constructor() {
     super({
-      name: 'Jest',
+      name: 'Vitest',
       type: 'unit',
-      command: 'npx jest',
-      args: ['--verbose', '--no-coverage'],
-      coverageCommand: 'npx jest --coverage --coverageReporters=json',
+      command: 'npx vitest',
+      args: ['run', '--reporter=verbose'],
+      coverageCommand: 'npx vitest run --coverage --reporter=json',
       coverageFormat: 'json',
       filePatterns: {
-        source: ['src/**/*.js', 'src/**/*.ts', 'lib/**/*.js', 'lib/**/*.ts'],
+        source: ['src/**/*.js', 'src/**/*.ts', 'src/**/*.jsx', 'src/**/*.tsx', 'lib/**/*.js', 'lib/**/*.ts'],
         test: ['**/*.test.js', '**/*.test.ts', '**/*.test.jsx', '**/*.test.tsx', '**/*.spec.js', '**/*.spec.ts', '**/*.spec.jsx', '**/*.spec.tsx']
       },
       resultParser: 'json',
-      configFiles: ['jest.config.js', 'jest.config.json', 'jest.config.ts', 'jest.config.mjs', 'package.json']
+      configFiles: ['vitest.config.js', 'vitest.config.ts', 'vitest.config.mjs', 'vite.config.js', 'vite.config.ts']
     });
   }
 
@@ -38,48 +38,51 @@ export class JestFramework extends BaseFramework {
   parseResults(output: string): { passed: boolean; failures?: TestFailure[] } {
     const failures: TestFailure[] = [];
     
-    // Parse Jest output for failures
+    // Parse Vitest output for failures
     const lines = output.split('\n');
     let currentFile = '';
     let currentTest = '';
     let failureMessage = '';
+    let inFailureBlock = false;
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
       // Test file pattern
-      if (line.match(/PASS|FAIL/) && line.includes('.test.') || line.includes('.spec.')) {
-        const parts = line.split(' ');
+      if (line.includes('FAIL') && (line.includes('.test.') || line.includes('.spec.'))) {
+        const parts = line.trim().split(' ');
         currentFile = parts[parts.length - 1];
       }
       
-      // Failed test pattern
-      if (line.includes('✕') || line.includes('×')) {
-        currentTest = line.replace(/[✕×]\s*/, '').trim();
+      // Failed test pattern (❌ or ×)
+      if (line.match(/^[│\s]*[❌×]\s+/)) {
+        currentTest = line.replace(/[│\s]*[❌×]\s+/, '').trim();
+        inFailureBlock = true;
       }
       
       // Error message pattern
-      if (line.includes('Error:') || line.includes('expect') || line.includes('received')) {
-        failureMessage += line + '\n';
+      if (inFailureBlock && (line.includes('Error:') || line.includes('AssertionError') || line.includes('Expected') || line.includes('Received'))) {
+        failureMessage += line.trim() + '\n';
       }
       
-      // If we have all components, add to failures
-      if (currentFile && currentTest && failureMessage) {
-        failures.push({
-          file: currentFile,
-          message: currentTest,
-          fullMessage: failureMessage.trim()
-        });
-        
-        // Reset for next failure
+      // End of failure block
+      if (inFailureBlock && line.trim() === '') {
+        if (currentFile && currentTest && failureMessage) {
+          failures.push({
+            file: currentFile,
+            message: currentTest,
+            fullMessage: failureMessage.trim()
+          });
+        }
         currentTest = '';
         failureMessage = '';
+        inFailureBlock = false;
       }
     }
     
     // Check if tests passed
     const passed = !output.includes('FAIL') && 
-                   (output.includes('PASS') || output.includes('Test Suites: 1 passed') || !output.includes('Test Suites:'));
+                   (output.includes('PASS') || output.includes('Test Files') || !output.includes('Test Files:'));
     
     return {
       passed,
@@ -89,7 +92,7 @@ export class JestFramework extends BaseFramework {
 
   async generateCoverageReport(): Promise<CoverageReport | null> {
     try {
-      // Run Jest with coverage
+      // Run Vitest with coverage
       await this.executeCommand(this.config.coverageCommand!, []);
       
       // Read coverage JSON file

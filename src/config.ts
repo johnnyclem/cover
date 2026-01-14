@@ -1,8 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import { TestingFrameworkConfig } from './types.js';
 
 export interface CoverConfig {
     framework?: string;
+    testingFrameworks?: TestingFrameworkConfig[];
     llm?: {
         provider: 'local' | 'openai' | 'anthropic';
         baseUrl?: string;
@@ -12,6 +14,12 @@ export interface CoverConfig {
     paths?: {
         source: string;
         tests: string;
+    };
+    js?: {
+        enableCoverage?: boolean;
+        coverageThreshold?: number;
+        testPatterns?: string[];
+        sourcePatterns?: string[];
     };
 }
 

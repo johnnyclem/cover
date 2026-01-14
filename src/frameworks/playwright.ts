@@ -3,21 +3,21 @@ import { TestingFrameworkConfig, TestRunResult, CoverageReport, TestFailure } fr
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-export class JestFramework extends BaseFramework {
+export class PlaywrightFramework extends BaseFramework {
   constructor() {
     super({
-      name: 'Jest',
-      type: 'unit',
-      command: 'npx jest',
-      args: ['--verbose', '--no-coverage'],
-      coverageCommand: 'npx jest --coverage --coverageReporters=json',
+      name: 'Playwright',
+      type: 'e2e',
+      command: 'npx playwright',
+      args: ['test', '--reporter=line'],
+      coverageCommand: 'npx playwright test --coverage',
       coverageFormat: 'json',
       filePatterns: {
-        source: ['src/**/*.js', 'src/**/*.ts', 'lib/**/*.js', 'lib/**/*.ts'],
-        test: ['**/*.test.js', '**/*.test.ts', '**/*.test.jsx', '**/*.test.tsx', '**/*.spec.js', '**/*.spec.ts', '**/*.spec.jsx', '**/*.spec.tsx']
+        source: ['src/**/*.js', 'src/**/*.ts', 'src/**/*.jsx', 'src/**/*.tsx', 'tests/**/*.js', 'tests/**/*.ts'],
+        test: ['tests/**/*.spec.js', 'tests/**/*.spec.ts', 'tests/**/*.test.js', 'tests/**/*.test.ts', 'e2e/**/*.spec.js', 'e2e/**/*.spec.ts', 'e2e/**/*.test.js', 'e2e/**/*.test.ts']
       },
       resultParser: 'json',
-      configFiles: ['jest.config.js', 'jest.config.json', 'jest.config.ts', 'jest.config.mjs', 'package.json']
+      configFiles: ['playwright.config.js', 'playwright.config.ts', 'playwright.config.mjs']
     });
   }
 
@@ -38,48 +38,79 @@ export class JestFramework extends BaseFramework {
   parseResults(output: string): { passed: boolean; failures?: TestFailure[] } {
     const failures: TestFailure[] = [];
     
-    // Parse Jest output for failures
+    // Parse Playwright output for failures
     const lines = output.split('\n');
     let currentFile = '';
     let currentTest = '';
     let failureMessage = '';
+    let inFailureBlock = false;
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
       // Test file pattern
-      if (line.match(/PASS|FAIL/) && line.includes('.test.') || line.includes('.spec.')) {
-        const parts = line.split(' ');
-        currentFile = parts[parts.length - 1];
+      if (line.includes('Running') && (line.includes('.spec.') || line.includes('.test.'))) {
+        const match = line.match(/Running\s+(\d+\.\d+)\s+(.+?\.spec\.[jt]s|.+?\.test\.[jt]s)/);
+        if (match) {
+          currentFile = match[2];
+        }
       }
       
       // Failed test pattern
-      if (line.includes('✕') || line.includes('×')) {
-        currentTest = line.replace(/[✕×]\s*/, '').trim();
+      if (line.includes('×') || line.includes('✗') || line.includes('failed')) {
+        // Extract test name from the line
+        const testMatch = line.match(/[×✗]\s+(.+)/);
+        if (testMatch) {
+          currentTest = testMatch[1].trim();
+          inFailureBlock = true;
+        }
       }
       
       // Error message pattern
-      if (line.includes('Error:') || line.includes('expect') || line.includes('received')) {
-        failureMessage += line + '\n';
+      if (inFailureBlock && (line.includes('Error:') || line.includes('AssertionError') || line.includes('expected') || line.includes('received'))) {
+        failureMessage += line.trim() + '\n';
       }
       
-      // If we have all components, add to failures
-      if (currentFile && currentTest && failureMessage) {
-        failures.push({
-          file: currentFile,
-          message: currentTest,
-          fullMessage: failureMessage.trim()
-        });
-        
-        // Reset for next failure
+      // End of failure block
+      if (inFailureBlock && (line.trim() === '' || line.includes('retry'))) {
+        if (currentFile && currentTest && failureMessage) {
+          failures.push({
+            file: currentFile,
+            message: currentTest,
+            fullMessage: failureMessage.trim()
+          });
+        }
         currentTest = '';
         failureMessage = '';
+        inFailureBlock = false;
       }
     }
     
+    // Also check for JSON reporter output
+    try {
+      const jsonMatch = output.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const jsonData = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(jsonData)) {
+          jsonData.forEach((testResult: any) => {
+            if (testResult.status === 'failed') {
+              failures.push({
+                file: testResult.file || '',
+                message: testResult.title || testResult.name || 'Test failed',
+                fullMessage: testResult.error?.message || testResult.error?.stack || 'Test failed'
+              });
+            }
+          });
+        }
+      }
+    } catch (error) {
+      // JSON parsing failed, continue with text parsing
+    }
+    
     // Check if tests passed
-    const passed = !output.includes('FAIL') && 
-                   (output.includes('PASS') || output.includes('Test Suites: 1 passed') || !output.includes('Test Suites:'));
+    const passed = !output.includes('failed') && 
+                   !output.includes('×') && 
+                   (output.includes('passed') || output.includes('All tests passed'));
     
     return {
       passed,
@@ -89,10 +120,10 @@ export class JestFramework extends BaseFramework {
 
   async generateCoverageReport(): Promise<CoverageReport | null> {
     try {
-      // Run Jest with coverage
+      // Run Playwright with coverage
       await this.executeCommand(this.config.coverageCommand!, []);
       
-      // Read coverage JSON file
+      // Read coverage JSON file (Playwright typically outputs to coverage folder)
       const coverageFile = 'coverage/coverage-final.json';
       try {
         const coverageData = JSON.parse(await fs.readFile(coverageFile, 'utf-8'));
@@ -108,37 +139,41 @@ export class JestFramework extends BaseFramework {
   }
 
   async findTestFiles(sourceFile: string): Promise<string[]> {
-    const sourceDir = path.dirname(sourceFile);
     const sourceName = path.basename(sourceFile, path.extname(sourceFile));
     
     const testPatterns = [
-      path.join(sourceDir, `${sourceName}.test.js`),
-      path.join(sourceDir, `${sourceName}.test.ts`),
-      path.join(sourceDir, `${sourceName}.test.jsx`),
-      path.join(sourceDir, `${sourceName}.test.tsx`),
-      path.join(sourceDir, `${sourceName}.spec.js`),
-      path.join(sourceDir, `${sourceName}.spec.ts`),
-      path.join(sourceDir, `${sourceName}.spec.jsx`),
-      path.join(sourceDir, `${sourceName}.spec.tsx`),
-      path.join('__tests__', `${sourceName}.test.js`),
-      path.join('__tests__', `${sourceName}.test.ts`),
-      path.join('test', `${sourceName}.test.js`),
-      path.join('test', `${sourceName}.test.ts`),
-      path.join('tests', `${sourceName}.test.js`),
-      path.join('tests', `${sourceName}.test.ts`)
+      `tests/${sourceName}.spec.js`,
+      `tests/${sourceName}.spec.ts`,
+      `tests/${sourceName}.test.js`,
+      `tests/${sourceName}.test.ts`,
+      `e2e/${sourceName}.spec.js`,
+      `e2e/${sourceName}.spec.ts`,
+      `e2e/${sourceName}.test.js`,
+      `e2e/${sourceName}.test.ts`,
+      `tests/**/*${sourceName}*.spec.js`,
+      `tests/**/*${sourceName}*.spec.ts`,
+      `tests/**/*${sourceName}*.test.js`,
+      `tests/**/*${sourceName}*.test.ts`
     ];
     
     const existingFiles: string[] = [];
     for (const pattern of testPatterns) {
       try {
-        await fs.access(pattern);
-        existingFiles.push(pattern);
+        // For patterns with wildcards, we need to use glob
+        if (pattern.includes('*')) {
+          const { glob } = await import('glob');
+          const matches = await glob(pattern);
+          existingFiles.push(...matches);
+        } else {
+          await fs.access(pattern);
+          existingFiles.push(pattern);
+        }
       } catch {
         // File doesn't exist
       }
     }
     
-    return existingFiles;
+    return [...new Set(existingFiles)]; // Remove duplicates
   }
 
   private parseCoverageData(coverageData: any): CoverageReport {
