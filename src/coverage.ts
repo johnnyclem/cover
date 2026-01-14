@@ -22,7 +22,12 @@ export const processCoverage = (coverageJson: any, changedFiles: string[]): Cove
     // We try to find a match in the covered files
     // A strict endsWith check is usually safe enough for unique filenames, 
     // but we should be careful about identical filenames in different modules.
-    const match = allCoveredFiles.find((cf: any) => cf.path.endsWith(changedFile));
+    let match = allCoveredFiles.find((cf: any) => cf.path.endsWith(changedFile));
+
+    if (!match) {
+        // Try case-insensitive match to handle FS case variances
+        match = allCoveredFiles.find((cf: any) => cf.path.toLowerCase().endsWith(changedFile.toLowerCase()));
+    }
     
     if (match) {
       results.push({
