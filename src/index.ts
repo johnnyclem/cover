@@ -7,6 +7,7 @@ import { printCoverageTable, logger, spinner } from './ui';
 import { selectAgent, generatePrompt, runAgent } from './agent';
 import { runTestFixLoop } from './fixer';
 import { setupLLM } from './llm';
+import { runInit } from './init';
 import inquirer from 'inquirer';
 
 const program = new Command();
@@ -15,6 +16,17 @@ program
   .name('cover')
   .description('Automated TDD/Coverage loop for iOS/macOS')
   .version('1.0.0');
+
+program.command('init [path]')
+  .description('Initialize Cover in a project directory')
+  .action(async (path) => {
+      try {
+          await runInit(path || '.');
+      } catch (error: any) {
+          logger.error(error.message || error);
+          process.exit(1);
+      }
+  });
 
 program.command('fix')
   .description('Run tests and autonomously fix failures using AI')
