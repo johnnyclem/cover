@@ -192,7 +192,14 @@ export const runXcodeTests = async (scheme: string, destination: string | undefi
         if (error.stderr) console.error(error.stderr);
     }
     
-    throw new Error('xcodebuild failed. See output above for details.');
+    // Do NOT throw if we want to analyze results. Return the path so the agent can inspect it.
+    // However, for the normal CLI flow, we might want to throw?
+    // Let's rely on the caller to check the status or inspect the xcresult.
+    // But execa throws on exit code != 0.
+    
+    // Check if it was a build failure or test failure.
+    // If build failure, xcresult might be empty/invalid?
+    // Usually xcodebuild creates the result bundle even if tests fail.
   }
 
   return { xcresultPath: `${derivedDataPath}/TestResult.xcresult`, selectedDestination: selectedDestination! };

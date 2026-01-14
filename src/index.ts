@@ -5,6 +5,8 @@ import { runXcodeTests, getCoverageData } from './xcode';
 import { processCoverage } from './coverage';
 import { printCoverageTable, logger, spinner } from './ui';
 import { selectAgent, generatePrompt, runAgent } from './agent';
+import { runTestFixLoop } from './fixer';
+import { setupLLM } from './llm';
 import inquirer from 'inquirer';
 
 const program = new Command();
@@ -12,8 +14,41 @@ const program = new Command();
 program
   .name('cover')
   .description('Automated TDD/Coverage loop for iOS/macOS')
-  .version('1.0.0')
+  .version('1.0.0');
+
+program.command('fix')
+  .description('Run tests and autonomously fix failures using AI')
   .option('-s, --scheme <scheme>', 'Xcode scheme to test')
+  .option('-d, --destination <destination>', 'Simulator destination')
+  .option('-r, --retries <number>', 'Max retries', '3')
+  .action(async (options) => {
+    try {
+        await setupLLM();
+        
+        let scheme = options.scheme;
+        if (!scheme) {
+            const answers = await inquirer.prompt([{
+                type: 'input',
+                name: 'scheme',
+                message: 'Enter the Xcode Scheme to test:',
+                validate: (input) => input ? true : 'Scheme is required'
+            }]);
+            scheme = answers.scheme;
+        }
+
+        await runTestFixLoop(scheme, options.destination, parseInt(options.retries));
+        
+    } catch (error: any) {
+        logger.error(error.message || error);
+        process.exit(1);
+    }
+  });
+
+program
+  .command('check', { isDefault: true })
+  .description('Check code coverage (default)')
+  .option('-s, --scheme <scheme>', 'Xcode scheme to test')
+
   .option('-b, --branch <branch>', 'Base branch to compare against', 'main')
   .option('-t, --threshold <number>', 'Coverage threshold percentage', '80')
   .option('-w, --workspace <path>', 'Path to .xcworkspace')
