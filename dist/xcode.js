@@ -60,18 +60,26 @@ const getDestinations = async (scheme, baseArgs) => {
         const { stdout } = await (0, execa_1.execa)('xcodebuild', destArgs);
         const lines = stdout.split('\n');
         const choices = [];
+        const seenNames = new Set();
         lines.forEach((line) => {
             const trimmed = line.trim();
             if (trimmed.startsWith('{') && trimmed.includes('platform:iOS Simulator')) {
                 // Extract name
-                const nameMatch = trimmed.match(/name:([^,}]+)/);
+                // Regex: name: then capture until comma or closing brace
+                const nameMatch = trimmed.match(/name:(.+?)(?:,|}|\s*$)/);
                 if (nameMatch) {
-                    const name = nameMatch[1];
-                    choices.push(`platform=iOS Simulator,name=${name}`);
+                    const name = nameMatch[1].trim();
+                    if (!seenNames.has(name)) {
+                        choices.push({
+                            name: name,
+                            value: `platform=iOS Simulator,name=${name}`
+                        });
+                        seenNames.add(name);
+                    }
                 }
             }
         });
-        return [...new Set(choices)];
+        return choices;
     }
     catch (error) {
         ui_1.logger.warn('Failed to fetch destinations.');
@@ -91,19 +99,45 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath) =>
         testSpinner.start();
         const choices = await getDestinations(scheme, baseArgs);
         testSpinner.stop();
+        const manualEntryValue = 'MANUAL_ENTRY';
+        // Add "Manual Entry" option
+        const promptChoices = [
+            ...choices,
+            new inquirer_1.default.Separator(),
+            { name: 'Enter destination manually...', value: manualEntryValue }
+        ];
         if (choices.length === 0) {
-            selectedDestination = 'platform=iOS Simulator,name=iPhone 17 Pro';
-            ui_1.logger.warn('No destinations found via xcodebuild. Defaulting to iPhone 17 Pro.');
+            ui_1.logger.warn('No destinations found via xcodebuild.');
+            // If no destinations found, prompt for manual entry directly or default?
+            // Let's still show the manual entry prompt to avoid blocking the user
+            const answer = await inquirer_1.default.prompt([{
+                    type: 'list',
+                    name: 'destination',
+                    message: 'No simulators detected. Select an action:',
+                    choices: [{ name: 'Use Default (iPhone 17 Pro)', value: 'platform=iOS Simulator,name=iPhone 17 Pro' }, { name: 'Enter destination manually...', value: manualEntryValue }],
+                }]);
+            selectedDestination = answer.destination;
         }
         else {
+            const defaultChoice = choices.find(c => c.name.includes('iPhone 17 Pro'));
             const answer = await inquirer_1.default.prompt([{
                     type: 'list',
                     name: 'destination',
                     message: 'Select a simulator destination:',
-                    choices: choices,
-                    default: choices.find(c => c.includes('iPhone 17 Pro'))
+                    choices: promptChoices,
+                    default: defaultChoice ? defaultChoice.value : undefined,
+                    pageSize: 10
                 }]);
             selectedDestination = answer.destination;
+        }
+        if (selectedDestination === manualEntryValue) {
+            const manualAnswer = await inquirer_1.default.prompt([{
+                    type: 'input',
+                    name: 'customDestination',
+                    message: 'Enter destination string (e.g., "platform=iOS Simulator,name=iPhone 17 Pro"):',
+                    validate: (input) => input.trim().length > 0 ? true : 'Destination cannot be empty.'
+                }]);
+            selectedDestination = manualAnswer.customDestination;
         }
     }
     const testSpin = (0, ui_1.spinner)(`Running tests on ${selectedDestination}...`).start();
