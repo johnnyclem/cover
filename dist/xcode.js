@@ -7,6 +7,7 @@ exports.getCoverageData = exports.runXcodeTests = void 0;
 const execa_1 = require("execa");
 const glob_1 = require("glob");
 const fs_1 = __importDefault(require("fs"));
+const os_1 = __importDefault(require("os"));
 const path_1 = __importDefault(require("path"));
 const ui_1 = require("./ui");
 const inquirer_1 = __importDefault(require("inquirer"));
@@ -80,12 +81,8 @@ const getDestinations = async (scheme, baseArgs) => {
 const runXcodeTests = async (scheme, destination, projectPath, workspacePath) => {
     ui_1.logger.step(`Preparing tests for scheme: ${scheme}`);
     // Create a temporary derived data path to easily locate logs/results
-    const derivedDataPath = path_1.default.resolve('./derived_data_temp');
-    const resultBundlePath = `${derivedDataPath}/TestResult.xcresult`;
-    // Clean up previous result bundle to avoid "Existing file" error
-    if (fs_1.default.existsSync(resultBundlePath)) {
-        fs_1.default.rmSync(resultBundlePath, { recursive: true, force: true });
-    }
+    const derivedDataPath = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'cover-derived-data-'));
+    const resultBundlePath = path_1.default.join(derivedDataPath, 'TestResult.xcresult');
     const baseArgs = await detectBaseArgs(projectPath, workspacePath);
     // Destination Handling
     let selectedDestination = destination;
@@ -95,8 +92,8 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath) =>
         const choices = await getDestinations(scheme, baseArgs);
         testSpinner.stop();
         if (choices.length === 0) {
-            selectedDestination = 'platform=iOS Simulator,name=iPhone 15';
-            ui_1.logger.warn('No destinations found via xcodebuild. Defaulting to iPhone 15.');
+            selectedDestination = 'platform=iOS Simulator,name=iPhone 17 Pro';
+            ui_1.logger.warn('No destinations found via xcodebuild. Defaulting to iPhone 17 Pro.');
         }
         else {
             const answer = await inquirer_1.default.prompt([{
@@ -104,7 +101,7 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath) =>
                     name: 'destination',
                     message: 'Select a simulator destination:',
                     choices: choices,
-                    default: choices.find(c => c.includes('iPhone 15'))
+                    default: choices.find(c => c.includes('iPhone 17 Pro'))
                 }]);
             selectedDestination = answer.destination;
         }
