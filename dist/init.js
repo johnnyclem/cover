@@ -13,6 +13,7 @@ const llm_1 = require("./llm");
 const config_1 = require("./config");
 const generator_1 = require("./generator");
 const fixer_1 = require("./fixer");
+const frameworks_1 = require("./frameworks");
 const runInit = async (targetPath = '.') => {
     // 0. Path & Permissions
     const absPath = path_1.default.resolve(targetPath);
@@ -65,25 +66,38 @@ const runInit = async (targetPath = '.') => {
     if (autoGen === 'No') {
         // 2a. Configure & Infer
         // setupLLM covered the provider prompt.
-        // Infer framework
-        let framework = 'XCTest'; // Default assumption
-        if (fs_1.default.existsSync('package.json')) {
-            const pkg = JSON.parse(fs_1.default.readFileSync('package.json', 'utf-8'));
-            if (pkg.dependencies?.jest || pkg.devDependencies?.jest)
-                framework = 'Jest';
-            if (pkg.dependencies?.mocha || pkg.devDependencies?.mocha)
-                framework = 'Mocha';
+        // Enhanced framework detection
+        let framework = await (0, frameworks_1.detectFramework)();
+        if (!framework) {
+            framework = 'XCTest'; // Default assumption for Swift projects
         }
+        const availableFrameworks = (0, frameworks_1.getAvailableFrameworks)();
+        const frameworkChoices = [...availableFrameworks, 'XCTest', 'Other'];
         const { confirmFramework } = await inquirer_1.default.prompt([{
                 type: 'list',
                 name: 'confirmFramework',
                 message: `Detected testing framework: ${framework}. Is this correct?`,
-                choices: [framework, 'Other']
+                choices: frameworkChoices
             }]);
         let finalFramework = confirmFramework;
         if (finalFramework === 'Other') {
-            const answer = await inquirer_1.default.prompt([{ type: 'input', name: 'fw', message: 'Enter framework name:' }]);
-            finalFramework = answer.fw;
+            const answer = await inquirer_1.default.prompt([{
+                    type: 'list',
+                    name: 'fw',
+                    message: 'Select your testing framework:',
+                    choices: availableFrameworks.map(f => ({ name: f, value: f })).concat([{ name: 'Custom', value: 'custom' }])
+                }]);
+            if (answer.fw === 'custom') {
+                const customAnswer = await inquirer_1.default.prompt([{
+                        type: 'input',
+                        name: 'customFramework',
+                        message: 'Enter custom framework name:'
+                    }]);
+                finalFramework = customAnswer.customFramework;
+            }
+            else {
+                finalFramework = answer.fw;
+            }
         }
         (0, config_1.updateConfig)({ framework: finalFramework });
         ui_1.logger.success('Configuration saved.');
