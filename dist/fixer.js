@@ -9,7 +9,7 @@ const xcode_1 = require("./xcode");
 const results_1 = require("./results");
 const llm_1 = require("./llm");
 const ui_1 = require("./ui");
-const runTestFixLoop = async (scheme, destination, maxRetries = 3) => {
+const runTestFixLoop = async (scheme, destination, maxRetries = 3, refreshDestinations = false) => {
     let retries = 0;
     // Use a set to track which files we've already fixed to avoid infinite loops on the same file if the fix doesn't work
     // or maybe just limit total retries.
@@ -17,7 +17,7 @@ const runTestFixLoop = async (scheme, destination, maxRetries = 3) => {
     while (retries < maxRetries) {
         ui_1.logger.info(`\n--- Test Run ${retries + 1}/${maxRetries} ---`);
         // runXcodeTests now returns the path even on failure, thanks to the recent fix
-        const { xcresultPath, selectedDestination } = await (0, xcode_1.runXcodeTests)(scheme, destination);
+        const { xcresultPath, selectedDestination } = await (0, xcode_1.runXcodeTests)(scheme, destination, undefined, undefined, refreshDestinations);
         // Check for failures
         const failures = await (0, results_1.getTestFailures)(xcresultPath);
         if (failures.length === 0) {

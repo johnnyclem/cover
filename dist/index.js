@@ -41,6 +41,7 @@ program.command('fix')
     .option('-r, --retries <number>', 'Max retries', '3')
     .option('-f, --framework <framework>', 'Testing framework (auto-detected if not specified)')
     .option('-t, --test-files <files...>', 'Specific test files to run')
+    .option('--refresh-destinations', 'Refresh the cached list of Xcode run destinations')
     .action(async (options) => {
     try {
         await (0, llm_1.setupLLM)();
@@ -86,7 +87,7 @@ program.command('fix')
                     }]);
                 scheme = answers.scheme;
             }
-            await (0, fixer_1.runTestFixLoop)(scheme, options.destination, parseInt(options.retries));
+            await (0, fixer_1.runTestFixLoop)(scheme, options.destination, parseInt(options.retries), options.refreshDestinations);
         }
     }
     catch (error) {
@@ -104,6 +105,7 @@ program
     .option('-w, --workspace <path>', 'Path to .xcworkspace')
     .option('-p, --project <path>', 'Path to .xcodeproj')
     .option('--no-coverage', 'Skip coverage generation')
+    .option('--refresh-destinations', 'Refresh the cached list of Xcode run destinations')
     .action(async (options) => {
     try {
         ui_1.logger.info('Starting Cover...');
@@ -199,7 +201,7 @@ program
                     options.scheme = scheme;
                 }
                 // 3. Run Tests
-                const result = await (0, xcode_1.runXcodeTests)(scheme, destination, options.project, options.workspace);
+                const result = await (0, xcode_1.runXcodeTests)(scheme, destination, options.project, options.workspace, options.refreshDestinations);
                 const xcresultPath = result.xcresultPath;
                 destination = result.selectedDestination;
                 // 4. Check for Failures

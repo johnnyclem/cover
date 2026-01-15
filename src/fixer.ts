@@ -4,7 +4,7 @@ import { getTestFailures, TestFailure } from './results';
 import { getAnalyzerClient, getFixerClient } from './llm';
 import { logger, spinner } from './ui';
 
-export const runTestFixLoop = async (scheme: string, destination: string | undefined, maxRetries: number = 3) => {
+export const runTestFixLoop = async (scheme: string, destination: string | undefined, maxRetries: number = 3, refreshDestinations: boolean = false) => {
     let retries = 0;
 
     // Use a set to track which files we've already fixed to avoid infinite loops on the same file if the fix doesn't work
@@ -15,7 +15,7 @@ export const runTestFixLoop = async (scheme: string, destination: string | undef
         logger.info(`\n--- Test Run ${retries + 1}/${maxRetries} ---`);
         
         // runXcodeTests now returns the path even on failure, thanks to the recent fix
-        const { xcresultPath, selectedDestination } = await runXcodeTests(scheme, destination);
+        const { xcresultPath, selectedDestination } = await runXcodeTests(scheme, destination, undefined, undefined, refreshDestinations);
         
         // Check for failures
         const failures = await getTestFailures(xcresultPath);

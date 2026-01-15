@@ -11,6 +11,53 @@ const os_1 = __importDefault(require("os"));
 const path_1 = __importDefault(require("path"));
 const ui_1 = require("./ui");
 const inquirer_1 = __importDefault(require("inquirer"));
+// Cache configuration
+const CACHE_DIR = path_1.default.join(os_1.default.homedir(), '.cover');
+const DESTINATIONS_CACHE_FILE = path_1.default.join(CACHE_DIR, 'xcode-destinations-cache.json');
+const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+const createCacheDir = () => {
+    if (!fs_1.default.existsSync(CACHE_DIR)) {
+        fs_1.default.mkdirSync(CACHE_DIR, { recursive: true });
+    }
+};
+const getBaseArgsHash = (baseArgs) => {
+    return Buffer.from(baseArgs.join('|')).toString('base64').substring(0, 16);
+};
+const loadDestinationsFromCache = async (scheme, baseArgs) => {
+    try {
+        if (!fs_1.default.existsSync(DESTINATIONS_CACHE_FILE)) {
+            return null;
+        }
+        const cacheData = JSON.parse(fs_1.default.readFileSync(DESTINATIONS_CACHE_FILE, 'utf-8'));
+        const baseArgsHash = getBaseArgsHash(baseArgs);
+        const now = Date.now();
+        // Check if cache is valid (same scheme, same base args, and not expired)
+        if (cacheData.scheme === scheme &&
+            cacheData.baseArgsHash === baseArgsHash &&
+            (now - cacheData.timestamp) < CACHE_EXPIRY_MS) {
+            return cacheData.destinations;
+        }
+    }
+    catch (error) {
+        // If there's any error reading cache, just ignore it
+    }
+    return null;
+};
+const saveDestinationsToCache = (scheme, baseArgs, destinations) => {
+    try {
+        createCacheDir();
+        const cacheData = {
+            destinations,
+            timestamp: Date.now(),
+            scheme,
+            baseArgsHash: getBaseArgsHash(baseArgs)
+        };
+        fs_1.default.writeFileSync(DESTINATIONS_CACHE_FILE, JSON.stringify(cacheData, null, 2));
+    }
+    catch (error) {
+        // Silently fail to save cache
+    }
+};
 const detectBaseArgs = async (projectPath, workspacePath) => {
     const baseArgs = [];
     if (workspacePath) {
@@ -54,8 +101,17 @@ const detectBaseArgs = async (projectPath, workspacePath) => {
     }
     return baseArgs;
 };
-const getDestinations = async (scheme, baseArgs) => {
+const getDestinations = async (scheme, baseArgs, forceRefresh = false) => {
+    // Try to load from cache first unless force refresh is requested
+    if (!forceRefresh) {
+        const cachedDestinations = await loadDestinationsFromCache(scheme, baseArgs);
+        if (cachedDestinations) {
+            ui_1.logger.info('Using cached destinations.');
+            return cachedDestinations;
+        }
+    }
     try {
+        ui_1.logger.info('Fetching available destinations...');
         const destArgs = [...baseArgs, '-scheme', scheme, '-showdestinations'];
         const { stdout } = await (0, execa_1.execa)('xcodebuild', destArgs);
         const lines = stdout.split('\n');
@@ -79,6 +135,8 @@ const getDestinations = async (scheme, baseArgs) => {
                 }
             }
         });
+        // Save to cache for future use
+        saveDestinationsToCache(scheme, baseArgs, choices);
         return choices;
     }
     catch (error) {
@@ -86,7 +144,7 @@ const getDestinations = async (scheme, baseArgs) => {
         return [];
     }
 };
-const runXcodeTests = async (scheme, destination, projectPath, workspacePath) => {
+const runXcodeTests = async (scheme, destination, projectPath, workspacePath, refreshDestinations = false) => {
     ui_1.logger.step(`Preparing tests for scheme: ${scheme}`);
     // Create a temporary derived data path to easily locate logs/results
     const derivedDataPath = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'cover-derived-data-'));
@@ -97,24 +155,54 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath) =>
     if (!selectedDestination) {
         const testSpinner = (0, ui_1.spinner)('Checking available destinations...');
         testSpinner.start();
-        const choices = await getDestinations(scheme, baseArgs);
+        const choices = await getDestinations(scheme, baseArgs, refreshDestinations);
         testSpinner.stop();
         const manualEntryValue = 'MANUAL_ENTRY';
-        // Add "Manual Entry" option
+        const refreshValue = 'REFRESH_DESTINATIONS';
+        // Add options at the end
         const promptChoices = [
             ...choices,
             new inquirer_1.default.Separator(),
+            { name: 'Refresh destination list...', value: refreshValue },
             { name: 'Enter destination manually...', value: manualEntryValue }
         ];
         if (choices.length === 0) {
             ui_1.logger.warn('No destinations found via xcodebuild.');
+            const choicesWithRefresh = [
+                { name: 'Refresh destination list...', value: refreshValue },
+                { name: 'Use Default (iPhone 17 Pro)', value: 'platform=iOS Simulator,name=iPhone 17 Pro' },
+                { name: 'Enter destination manually...', value: manualEntryValue }
+            ];
             const answer = await inquirer_1.default.prompt([{
                     type: 'rawlist',
                     name: 'destination',
                     message: 'No simulators detected. Select an action:',
-                    choices: [{ name: 'Use Default (iPhone 17 Pro)', value: 'platform=iOS Simulator,name=iPhone 17 Pro' }, { name: 'Enter destination manually...', value: manualEntryValue }],
+                    choices: choicesWithRefresh,
                 }]);
             selectedDestination = answer.destination;
+            // Handle refresh option for no destinations case
+            if (selectedDestination === refreshValue) {
+                const refreshSpinner = (0, ui_1.spinner)('Refreshing destinations...');
+                refreshSpinner.start();
+                const refreshedChoices = await getDestinations(scheme, baseArgs, true); // Force refresh
+                refreshSpinner.stop();
+                if (refreshedChoices.length > 0) {
+                    const refreshedDefaultIndex = refreshedChoices.findIndex(c => c.name.includes('iPhone 17 Pro'));
+                    const refreshedAnswer = await inquirer_1.default.prompt([{
+                            type: 'rawlist',
+                            name: 'destination',
+                            message: 'Select a simulator destination (refreshed list):',
+                            choices: refreshedChoices,
+                            default: refreshedDefaultIndex >= 0 ? refreshedDefaultIndex : undefined,
+                            pageSize: 15
+                        }]);
+                    selectedDestination = refreshedAnswer.destination;
+                }
+                else {
+                    ui_1.logger.warn('Still no destinations found after refresh. Using default.');
+                    selectedDestination = 'platform=iOS Simulator,name=iPhone 17 Pro';
+                }
+            }
         }
         else {
             // Find index of default choice to set as default in rawlist (indices are 0-based in config, displayed as 1-based)
@@ -128,6 +216,36 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath) =>
                     pageSize: 15
                 }]);
             selectedDestination = answer.destination;
+            // Handle refresh option
+            if (selectedDestination === refreshValue) {
+                const refreshSpinner = (0, ui_1.spinner)('Refreshing destinations...');
+                refreshSpinner.start();
+                const refreshedChoices = await getDestinations(scheme, baseArgs, true); // Force refresh
+                refreshSpinner.stop();
+                if (refreshedChoices.length === 0) {
+                    ui_1.logger.warn('No destinations found after refresh.');
+                    // Fall back to manual entry or default
+                    const fallbackAnswer = await inquirer_1.default.prompt([{
+                            type: 'rawlist',
+                            name: 'destination',
+                            message: 'No destinations found. Select an action:',
+                            choices: [{ name: 'Use Default (iPhone 17 Pro)', value: 'platform=iOS Simulator,name=iPhone 17 Pro' }, { name: 'Enter destination manually...', value: manualEntryValue }],
+                        }]);
+                    selectedDestination = fallbackAnswer.destination;
+                }
+                else {
+                    const refreshedDefaultIndex = refreshedChoices.findIndex(c => c.name.includes('iPhone 17 Pro'));
+                    const refreshedAnswer = await inquirer_1.default.prompt([{
+                            type: 'rawlist',
+                            name: 'destination',
+                            message: 'Select a simulator destination (refreshed list):',
+                            choices: refreshedChoices,
+                            default: refreshedDefaultIndex >= 0 ? refreshedDefaultIndex : undefined,
+                            pageSize: 15
+                        }]);
+                    selectedDestination = refreshedAnswer.destination;
+                }
+            }
         }
         if (selectedDestination === manualEntryValue) {
             const manualAnswer = await inquirer_1.default.prompt([{

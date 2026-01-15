@@ -6,6 +6,66 @@ import path from 'path';
 import { logger, spinner } from './ui';
 import inquirer from 'inquirer';
 
+// Cache configuration
+const CACHE_DIR = path.join(os.homedir(), '.cover');
+const DESTINATIONS_CACHE_FILE = path.join(CACHE_DIR, 'xcode-destinations-cache.json');
+const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+interface DestinationsCache {
+    destinations: { name: string, value: string }[];
+    timestamp: number;
+    scheme: string;
+    baseArgsHash: string;
+}
+
+const createCacheDir = () => {
+    if (!fs.existsSync(CACHE_DIR)) {
+        fs.mkdirSync(CACHE_DIR, { recursive: true });
+    }
+};
+
+const getBaseArgsHash = (baseArgs: string[]): string => {
+    return Buffer.from(baseArgs.join('|')).toString('base64').substring(0, 16);
+};
+
+const loadDestinationsFromCache = async (scheme: string, baseArgs: string[]): Promise<{ name: string, value: string }[] | null> => {
+    try {
+        if (!fs.existsSync(DESTINATIONS_CACHE_FILE)) {
+            return null;
+        }
+
+        const cacheData: DestinationsCache = JSON.parse(fs.readFileSync(DESTINATIONS_CACHE_FILE, 'utf-8'));
+        const baseArgsHash = getBaseArgsHash(baseArgs);
+        const now = Date.now();
+
+        // Check if cache is valid (same scheme, same base args, and not expired)
+        if (cacheData.scheme === scheme && 
+            cacheData.baseArgsHash === baseArgsHash && 
+            (now - cacheData.timestamp) < CACHE_EXPIRY_MS) {
+            return cacheData.destinations;
+        }
+    } catch (error) {
+        // If there's any error reading cache, just ignore it
+    }
+    
+    return null;
+};
+
+const saveDestinationsToCache = (scheme: string, baseArgs: string[], destinations: { name: string, value: string }[]) => {
+    try {
+        createCacheDir();
+        const cacheData: DestinationsCache = {
+            destinations,
+            timestamp: Date.now(),
+            scheme,
+            baseArgsHash: getBaseArgsHash(baseArgs)
+        };
+        fs.writeFileSync(DESTINATIONS_CACHE_FILE, JSON.stringify(cacheData, null, 2));
+    } catch (error) {
+        // Silently fail to save cache
+    }
+};
+
 const detectBaseArgs = async (projectPath?: string, workspacePath?: string): Promise<string[]> => {
   const baseArgs: string[] = [];
   if (workspacePath) {
@@ -44,8 +104,18 @@ const detectBaseArgs = async (projectPath?: string, workspacePath?: string): Pro
   return baseArgs;
 };
 
-const getDestinations = async (scheme: string, baseArgs: string[]): Promise<{ name: string, value: string }[]> => {
+const getDestinations = async (scheme: string, baseArgs: string[], forceRefresh: boolean = false): Promise<{ name: string, value: string }[]> => {
+  // Try to load from cache first unless force refresh is requested
+  if (!forceRefresh) {
+    const cachedDestinations = await loadDestinationsFromCache(scheme, baseArgs);
+    if (cachedDestinations) {
+      logger.info('Using cached destinations.');
+      return cachedDestinations;
+    }
+  }
+
   try {
+      logger.info('Fetching available destinations...');
       const destArgs = [...baseArgs, '-scheme', scheme, '-showdestinations'];
       const { stdout } = await execa('xcodebuild', destArgs);
       
@@ -72,6 +142,9 @@ const getDestinations = async (scheme: string, baseArgs: string[]): Promise<{ na
           }
       });
       
+      // Save to cache for future use
+      saveDestinationsToCache(scheme, baseArgs, choices);
+      
       return choices;
   } catch (error) {
       logger.warn('Failed to fetch destinations.');
@@ -79,7 +152,7 @@ const getDestinations = async (scheme: string, baseArgs: string[]): Promise<{ na
   }
 };
 
-export const runXcodeTests = async (scheme: string, destination: string | undefined, projectPath?: string, workspacePath?: string): Promise<{ xcresultPath: string, selectedDestination: string }> => {
+export const runXcodeTests = async (scheme: string, destination: string | undefined, projectPath?: string, workspacePath?: string, refreshDestinations: boolean = false): Promise<{ xcresultPath: string, selectedDestination: string }> => {
   logger.step(`Preparing tests for scheme: ${scheme}`);
   
   // Create a temporary derived data path to easily locate logs/results
@@ -91,43 +164,106 @@ export const runXcodeTests = async (scheme: string, destination: string | undefi
   // Destination Handling
   let selectedDestination = destination;
 
-  if (!selectedDestination) {
-      const testSpinner = spinner('Checking available destinations...');
-      testSpinner.start();
-      const choices = await getDestinations(scheme, baseArgs);
-      testSpinner.stop();
+   if (!selectedDestination) {
+       const testSpinner = spinner('Checking available destinations...');
+       testSpinner.start();
+       const choices = await getDestinations(scheme, baseArgs, refreshDestinations);
+       testSpinner.stop();
       
       const manualEntryValue = 'MANUAL_ENTRY';
+      const refreshValue = 'REFRESH_DESTINATIONS';
 
-      // Add "Manual Entry" option
+      // Add options at the end
       const promptChoices = [
           ...choices,
           new inquirer.Separator(),
+          { name: 'Refresh destination list...', value: refreshValue },
           { name: 'Enter destination manually...', value: manualEntryValue }
       ];
 
       if (choices.length === 0) {
           logger.warn('No destinations found via xcodebuild.');
-          const answer = await inquirer.prompt([{
-              type: 'rawlist',
-              name: 'destination',
-              message: 'No simulators detected. Select an action:',
-              choices: [{ name: 'Use Default (iPhone 17 Pro)', value: 'platform=iOS Simulator,name=iPhone 17 Pro' }, { name: 'Enter destination manually...', value: manualEntryValue }],
-          }]);
-          selectedDestination = answer.destination;
+           const choicesWithRefresh = [
+               { name: 'Refresh destination list...', value: refreshValue },
+               { name: 'Use Default (iPhone 17 Pro)', value: 'platform=iOS Simulator,name=iPhone 17 Pro' },
+               { name: 'Enter destination manually...', value: manualEntryValue }
+           ];
+           
+           const answer = await inquirer.prompt([{
+               type: 'rawlist',
+               name: 'destination',
+               message: 'No simulators detected. Select an action:',
+               choices: choicesWithRefresh,
+           }]);
+           selectedDestination = answer.destination;
+
+           // Handle refresh option for no destinations case
+           if (selectedDestination === refreshValue) {
+               const refreshSpinner = spinner('Refreshing destinations...');
+               refreshSpinner.start();
+               const refreshedChoices = await getDestinations(scheme, baseArgs, true); // Force refresh
+               refreshSpinner.stop();
+               
+               if (refreshedChoices.length > 0) {
+                   const refreshedDefaultIndex = refreshedChoices.findIndex(c => c.name.includes('iPhone 17 Pro'));
+                   const refreshedAnswer = await inquirer.prompt([{
+                       type: 'rawlist',
+                       name: 'destination',
+                       message: 'Select a simulator destination (refreshed list):',
+                       choices: refreshedChoices,
+                       default: refreshedDefaultIndex >= 0 ? refreshedDefaultIndex : undefined,
+                       pageSize: 15
+                   }]);
+                   selectedDestination = refreshedAnswer.destination;
+               } else {
+                   logger.warn('Still no destinations found after refresh. Using default.');
+                   selectedDestination = 'platform=iOS Simulator,name=iPhone 17 Pro';
+               }
+           }
       } else {
           // Find index of default choice to set as default in rawlist (indices are 0-based in config, displayed as 1-based)
           const defaultIndex = choices.findIndex(c => c.name.includes('iPhone 17 Pro'));
           
-          const answer = await inquirer.prompt([{
-              type: 'rawlist',
-              name: 'destination',
-              message: 'Select a simulator destination (type the number):',
-              choices: promptChoices,
-              default: defaultIndex >= 0 ? defaultIndex : undefined,
-              pageSize: 15
-          }]);
-          selectedDestination = answer.destination;
+           const answer = await inquirer.prompt([{
+               type: 'rawlist',
+               name: 'destination',
+               message: 'Select a simulator destination (type the number):',
+               choices: promptChoices,
+               default: defaultIndex >= 0 ? defaultIndex : undefined,
+               pageSize: 15
+           }]);
+           selectedDestination = answer.destination;
+
+           // Handle refresh option
+           if (selectedDestination === refreshValue) {
+               const refreshSpinner = spinner('Refreshing destinations...');
+               refreshSpinner.start();
+               const refreshedChoices = await getDestinations(scheme, baseArgs, true); // Force refresh
+               refreshSpinner.stop();
+               
+               if (refreshedChoices.length === 0) {
+                   logger.warn('No destinations found after refresh.');
+                   // Fall back to manual entry or default
+                   const fallbackAnswer = await inquirer.prompt([{
+                       type: 'rawlist',
+                       name: 'destination',
+                       message: 'No destinations found. Select an action:',
+                       choices: [{ name: 'Use Default (iPhone 17 Pro)', value: 'platform=iOS Simulator,name=iPhone 17 Pro' }, { name: 'Enter destination manually...', value: manualEntryValue }],
+                   }]);
+                   selectedDestination = fallbackAnswer.destination;
+               } else {
+                   const refreshedDefaultIndex = refreshedChoices.findIndex(c => c.name.includes('iPhone 17 Pro'));
+                   const refreshedAnswer = await inquirer.prompt([{
+                       type: 'rawlist',
+                       name: 'destination',
+                       message: 'Select a simulator destination (refreshed list):',
+                       choices: refreshedChoices,
+                       default: refreshedDefaultIndex >= 0 ? refreshedDefaultIndex : undefined,
+                       pageSize: 15
+                   }]);
+                   selectedDestination = refreshedAnswer.destination;
+               }
+           }
       }
 
       if (selectedDestination === manualEntryValue) {
