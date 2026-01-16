@@ -293,8 +293,9 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
                     testSpin.text = 'Building...';
             });
         }
-        await subprocess;
+        const { all } = await subprocess;
         testSpin.succeed('Tests completed successfully.');
+        return { xcresultPath: `${derivedDataPath}/TestResult.xcresult`, selectedDestination: selectedDestination, success: true, log: all || '' };
     }
     catch (error) {
         testSpin.fail('Tests failed.');
@@ -309,15 +310,14 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
             if (error.stderr)
                 console.error(error.stderr);
         }
-        // Do NOT throw if we want to analyze results. Return the path so the agent can inspect it.
-        // However, for the normal CLI flow, we might want to throw?
-        // Let's rely on the caller to check the status or inspect the xcresult.
-        // But execa throws on exit code != 0.
-        // Check if it was a build failure or test failure.
-        // If build failure, xcresult might be empty/invalid?
-        // Usually xcodebuild creates the result bundle even if tests fail.
+        // Return failure status and logs
+        return {
+            xcresultPath: `${derivedDataPath}/TestResult.xcresult`,
+            selectedDestination: selectedDestination,
+            success: false,
+            log: error.all || error.message
+        };
     }
-    return { xcresultPath: `${derivedDataPath}/TestResult.xcresult`, selectedDestination: selectedDestination };
 };
 exports.runXcodeTests = runXcodeTests;
 const getCoverageData = async (xcresultPath) => {

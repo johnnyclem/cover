@@ -17,18 +17,32 @@ const runTestFixLoop = async (scheme, destination, maxRetries = 3, refreshDestin
     while (retries < maxRetries) {
         ui_1.logger.info(`\n--- Test Run ${retries + 1}/${maxRetries} ---`);
         // runXcodeTests now returns the path even on failure, thanks to the recent fix
-        const { xcresultPath, selectedDestination } = await (0, xcode_1.runXcodeTests)(scheme, destination, undefined, undefined, refreshDestinations);
-        // Check for failures
-        const failures = await (0, results_1.getTestFailures)(xcresultPath);
-        if (failures.length === 0) {
-            // No failures? Great!
-            // But wait, if xcodebuild failed due to compilation error, getTestFailures might return empty.
-            // runXcodeTests logs the error output to console if it fails.
-            // For this agent, we only handle *test* failures for now.
-            ui_1.logger.success('All tests passed!');
-            return;
+        const { xcresultPath, selectedDestination, success, log } = await (0, xcode_1.runXcodeTests)(scheme, destination, undefined, undefined, refreshDestinations);
+        let failures = [];
+        if (!success) {
+            ui_1.logger.error('Build failed. Analyzing build logs...');
+            failures = (0, results_1.getBuildFailures)(log);
+            if (failures.length === 0) {
+                ui_1.logger.warn('Build failed but no standard error messages found in log.');
+                // Fallback to generic error if possible, or just break
+                ui_1.logger.warn('Full log tail: ' + log.slice(-500));
+            }
         }
-        ui_1.logger.error(`Found ${failures.length} test failure(s).`);
+        else {
+            // Check for failures
+            failures = await (0, results_1.getTestFailures)(xcresultPath);
+        }
+        if (failures.length === 0) {
+            if (success) {
+                ui_1.logger.success('All tests passed!');
+                return;
+            }
+            else {
+                ui_1.logger.error('Build failed and no structured errors could be parsed. Stopping.');
+                break;
+            }
+        }
+        ui_1.logger.error(`Found ${failures.length} failure(s).`);
         // Fix the first one
         const failure = failures[0];
         ui_1.logger.info(`Attempting to fix: ${failure.testCaseName} in ${failure.fileName}`);

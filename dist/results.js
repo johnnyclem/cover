@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getTestFailures = void 0;
+exports.getBuildFailures = exports.getTestFailures = void 0;
 const execa_1 = require("execa");
 const ui_1 = require("./ui");
 const getTestFailures = async (xcresultPath) => {
@@ -56,3 +56,23 @@ const getTestFailures = async (xcresultPath) => {
     }
 };
 exports.getTestFailures = getTestFailures;
+const getBuildFailures = (log) => {
+    const failures = [];
+    const lines = log.split('\n');
+    // Regex for standard Swift/ObjC errors: /path/to/file:line:col: error: message
+    const errorRegex = /^(.+):(\d+):(\d+): error: (.+)$/;
+    for (const line of lines) {
+        const match = line.match(errorRegex);
+        if (match) {
+            const [_, filePath, lineStr, colStr, message] = match;
+            failures.push({
+                testCaseName: 'Build Failure',
+                message: message.trim(),
+                fileName: filePath.trim(),
+                lineNumber: parseInt(lineStr, 10)
+            });
+        }
+    }
+    return failures;
+};
+exports.getBuildFailures = getBuildFailures;

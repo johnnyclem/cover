@@ -205,14 +205,25 @@ program
                 const xcresultPath = result.xcresultPath;
                 destination = result.selectedDestination;
                 // 4. Check for Failures
-                const testFailures = await (0, results_1.getTestFailures)(xcresultPath);
+                let testFailures = await (0, results_1.getTestFailures)(xcresultPath);
+                // If build failed, we might not have test results, or they might be stale.
+                // Prioritize build errors if success is false.
+                if (!result.success) {
+                    const buildFailures = (0, results_1.getBuildFailures)(result.log);
+                    if (buildFailures.length > 0) {
+                        testFailures = buildFailures;
+                    }
+                    else {
+                        ui_1.logger.error('Build failed but no structured errors found.');
+                    }
+                }
                 if (testFailures.length > 0) {
-                    ui_1.logger.error(`Found ${testFailures.length} test failure(s).`);
+                    ui_1.logger.error(`Found ${testFailures.length} failure(s).`);
                     // Ask user if they want to fix failures first
                     const { fixAction } = await inquirer_1.default.prompt([{
                             type: 'list',
                             name: 'fixAction',
-                            message: 'Tests failed. What would you like to do?',
+                            message: 'Tests/Build failed. What would you like to do?',
                             choices: [
                                 'Auto-Fix Failures with AI',
                                 'Ignore and Check Coverage',
@@ -234,6 +245,19 @@ program
                             ui_1.logger.warn('Could not fix failure.');
                         }
                     }
+                }
+                if (!result.success) {
+                    ui_1.logger.error('Cannot generate coverage data because the build failed.');
+                    const { retry } = await inquirer_1.default.prompt([{
+                            type: 'confirm',
+                            name: 'retry',
+                            message: 'Retry?',
+                            default: true
+                        }]);
+                    if (retry)
+                        continue;
+                    else
+                        break;
                 }
                 // 5. Get Data
                 const coverageJson = await (0, xcode_1.getCoverageData)(xcresultPath);

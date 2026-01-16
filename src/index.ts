@@ -8,7 +8,7 @@ import { selectAgent, generatePrompt, runAgent } from './agent';
 import { runTestFixLoop, fixFailure } from './fixer';
 import { setupLLM } from './llm';
 import { runInit } from './init';
-import { getTestFailures } from './results';
+import { getTestFailures, getBuildFailures } from './results';
 import { detectFramework, createFramework, getAvailableFrameworks } from './frameworks';
 import { JSTestRunner, runJSTests, runTestsForChangedFiles } from './test-runner';
 import { loadConfig } from './config';
@@ -227,15 +227,27 @@ program
           destination = result.selectedDestination;
           
           // 4. Check for Failures
-          const testFailures = await getTestFailures(xcresultPath);
+          let testFailures = await getTestFailures(xcresultPath);
+          
+          // If build failed, we might not have test results, or they might be stale.
+          // Prioritize build errors if success is false.
+          if (!result.success) {
+              const buildFailures = getBuildFailures(result.log);
+              if (buildFailures.length > 0) {
+                  testFailures = buildFailures;
+              } else {
+                  logger.error('Build failed but no structured errors found.');
+              }
+          }
+
           if (testFailures.length > 0) {
-              logger.error(`Found ${testFailures.length} test failure(s).`);
+              logger.error(`Found ${testFailures.length} failure(s).`);
               
               // Ask user if they want to fix failures first
               const { fixAction } = await inquirer.prompt([{
                   type: 'list',
                   name: 'fixAction',
-                  message: 'Tests failed. What would you like to do?',
+                  message: 'Tests/Build failed. What would you like to do?',
                   choices: [
                       'Auto-Fix Failures with AI',
                       'Ignore and Check Coverage',
@@ -259,6 +271,18 @@ program
               }
           }
           
+          if (!result.success) {
+              logger.error('Cannot generate coverage data because the build failed.');
+              const { retry } = await inquirer.prompt([{
+                  type: 'confirm',
+                  name: 'retry',
+                  message: 'Retry?',
+                  default: true
+              }]);
+              if (retry) continue;
+              else break;
+          }
+
           // 5. Get Data
           const coverageJson = await getCoverageData(xcresultPath);
           
