@@ -213,17 +213,19 @@ program
                     if (buildFailures.length > 0) {
                         testFailures = buildFailures;
                     }
-                    else {
+                    else if (testFailures.length === 0) {
                         ui_1.logger.error('Build failed but no structured errors found.');
                     }
                 }
                 if (testFailures.length > 0) {
                     ui_1.logger.error(`Found ${testFailures.length} failure(s).`);
+                    // Check if these are build failures or test failures
+                    const isBuildFailure = testFailures.some(f => f.testCaseName === 'Build Failure');
                     // Ask user if they want to fix failures first
                     const { fixAction } = await inquirer_1.default.prompt([{
                             type: 'list',
                             name: 'fixAction',
-                            message: 'Tests/Build failed. What would you like to do?',
+                            message: isBuildFailure ? 'Build failed. What would you like to do?' : 'Tests failed. What would you like to do?',
                             choices: [
                                 'Auto-Fix Failures with AI',
                                 'Ignore and Check Coverage',
@@ -246,7 +248,10 @@ program
                         }
                     }
                 }
-                if (!result.success) {
+                // Determine if we should block coverage generation
+                // Block if: !success AND (no failures found OR failures are build failures)
+                const isRealBuildFailure = !result.success && (testFailures.length === 0 || testFailures.some(f => f.testCaseName === 'Build Failure'));
+                if (isRealBuildFailure) {
                     ui_1.logger.error('Cannot generate coverage data because the build failed.');
                     const { retry } = await inquirer_1.default.prompt([{
                             type: 'confirm',
