@@ -6,6 +6,7 @@ import { logger, spinner } from './ui';
 
 export const runTestFixLoop = async (scheme: string, destination: string | undefined, maxRetries: number = 3, refreshDestinations: boolean = false) => {
     let retries = 0;
+    let currentDestination = destination;
 
     // Use a set to track which files we've already fixed to avoid infinite loops on the same file if the fix doesn't work
     // or maybe just limit total retries.
@@ -15,7 +16,10 @@ export const runTestFixLoop = async (scheme: string, destination: string | undef
         logger.info(`\n--- Test Run ${retries + 1}/${maxRetries} ---`);
         
         // runXcodeTests now returns the path even on failure, thanks to the recent fix
-        const { xcresultPath, selectedDestination, success, log } = await runXcodeTests(scheme, destination, undefined, undefined, refreshDestinations);
+        const { xcresultPath, selectedDestination, success, log } = await runXcodeTests(scheme, currentDestination, undefined, undefined, refreshDestinations);
+        
+        // Update destination for next run so we don't ask again
+        currentDestination = selectedDestination;
         
         let failures: TestFailure[] = [];
 
