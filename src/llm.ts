@@ -16,7 +16,7 @@ let localConfig: LLMConfig = {
     provider: 'local',
     baseUrl: 'http://localhost:1234/v1', // LM Studio default
     apiKey: 'lm-studio',
-    model: 'openai/gpt-oss-20b', // Example capable local model
+    model: 'glm-4.7-flash', // Example capable local model
 };
 
 let activeConfig: LLMConfig | null = null;
