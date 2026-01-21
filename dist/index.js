@@ -18,6 +18,12 @@ const frameworks_1 = require("./frameworks");
 const test_runner_1 = require("./test-runner");
 const config_1 = require("./config");
 const inquirer_1 = __importDefault(require("inquirer"));
+const test_plan_1 = require("./test-plan");
+const execa_1 = require("execa");
+const glob_1 = require("glob");
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const os_1 = __importDefault(require("os"));
 const program = new commander_1.Command();
 program
     .name('cover')
@@ -302,6 +308,105 @@ program
                 }
             }
         }
+    }
+    catch (error) {
+        ui_1.logger.error(error.message || error);
+        process.exit(1);
+    }
+});
+program.command('test-plan <path>')
+    .description('Run tests from an Xcode testing plan JSON file')
+    .option('-d, --destination <destination>', 'Simulator destination')
+    .option('-w, --workspace <path>', 'Path to .xcworkspace')
+    .option('-p, --project <path>', 'Path to .xcodeproj')
+    .option('--no-coverage', 'Skip coverage generation')
+    .action(async (planPath, options) => {
+    try {
+        const plan = (0, test_plan_1.parseTestPlan)(planPath);
+        ui_1.logger.info(`Loaded test plan: ${planPath}`);
+        ui_1.logger.info(`Targets: ${plan.testTargets.map(t => t.target.name).join(', ')}`);
+        const result = await (0, test_plan_1.runTestPlan)(planPath, options.destination, options.project, options.workspace);
+        if (!result.success) {
+            ui_1.logger.error('Tests failed.');
+            process.exit(1);
+        }
+        if (options.coverage !== false) {
+            ui_1.logger.info('Processing coverage...');
+            const coverageJson = await (0, xcode_1.getCoverageData)(result.xcresultPath);
+            const report = (0, coverage_1.processCoverage)(coverageJson, []);
+            (0, ui_1.printCoverageTable)(report);
+        }
+        ui_1.logger.success('Test plan completed successfully.');
+    }
+    catch (error) {
+        ui_1.logger.error(error.message || error);
+        process.exit(1);
+    }
+});
+program.command('run-targets <targets...>')
+    .description('Run specific test targets (e.g., cover run-targets MyTests MyOtherTests)')
+    .option('-s, --scheme <scheme>', 'Xcode scheme (required if no .xcscheme found)')
+    .option('-d, --destination <destination>', 'Simulator destination')
+    .option('-w, --workspace <path>', 'Path to .xcworkspace')
+    .option('-p, --project <path>', 'Path to .xcodeproj')
+    .option('--no-coverage', 'Skip coverage generation')
+    .action(async (targets, options) => {
+    try {
+        ui_1.logger.info(`Running targets: ${targets.join(', ')}`);
+        const derivedDataPath = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'cover-targets-'));
+        const resultBundlePath = path_1.default.join(derivedDataPath, 'TestResult.xcresult');
+        let baseArgs = [];
+        if (options.workspace) {
+            baseArgs.push('-workspace', options.workspace);
+        }
+        else if (options.project) {
+            baseArgs.push('-project', options.project);
+        }
+        else {
+            const workspaces = await (0, glob_1.glob)('*.xcworkspace');
+            if (workspaces.length > 0) {
+                baseArgs.push('-workspace', workspaces[0]);
+            }
+            else {
+                const projects = await (0, glob_1.glob)('*.xcodeproj');
+                if (projects.length > 0) {
+                    baseArgs.push('-project', projects[0]);
+                }
+            }
+        }
+        if (options.scheme) {
+            baseArgs.push('-scheme', options.scheme);
+        }
+        const testArgs = ['test', ...baseArgs, '-enableCodeCoverage', 'YES', '-resultBundlePath', resultBundlePath];
+        if (options.destination) {
+            testArgs.push('-destination', options.destination);
+        }
+        for (const target of targets) {
+            testArgs.push('-only-testing', target);
+        }
+        const testSpin = (0, ui_1.spinner)(`Running tests for ${targets.length} target(s)...`).start();
+        const subprocess = (0, execa_1.execa)('xcodebuild', testArgs, {
+            all: true,
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        if (subprocess.stdout) {
+            subprocess.stdout.on('data', (chunk) => {
+                const text = chunk.toString();
+                if (text.includes('Compiling'))
+                    testSpin.text = 'Compiling...';
+                else if (text.includes('Testing'))
+                    testSpin.text = 'Testing...';
+            });
+        }
+        const { all } = await subprocess;
+        testSpin.succeed(`Tests completed for ${targets.length} target(s).`);
+        if (options.coverage !== false) {
+            ui_1.logger.info('Processing coverage...');
+            const coverageJson = await (0, xcode_1.getCoverageData)(resultBundlePath);
+            const report = (0, coverage_1.processCoverage)(coverageJson, []);
+            (0, ui_1.printCoverageTable)(report);
+        }
+        ui_1.logger.success('Test run completed successfully.');
     }
     catch (error) {
         ui_1.logger.error(error.message || error);

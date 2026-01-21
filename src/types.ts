@@ -52,3 +52,30 @@ export interface TestFailure {
   message: string;
   fullMessage: string;
 }
+
+export interface TestPlanTarget {
+    target: {
+        containerPath: string;
+        identifier: string;
+        name: string;
+    };
+}
+
+export interface TestPlanConfig {
+    configurations: Array<{
+        id: string;
+        name: string;
+        options: Record<string, any>;
+    }>;
+    defaultOptions: {
+        codeCoverage?: {
+            targets?: Array<{
+                containerPath: string;
+                identifier: string;
+                name: string;
+            }>;
+        };
+    };
+    testTargets: TestPlanTarget[];
+    version: number;
+}

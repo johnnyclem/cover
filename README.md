@@ -31,6 +31,22 @@ cover
 - `-b, --branch <branch>`: Base branch to compare against (default: `main`).
 - `-t, --threshold <number>`: Coverage percentage threshold (default: 80).
 
+### Test Plans
+
+Run tests from an Xcode testing plan JSON file for isolated testing:
+
+```bash
+cover test-plan path/to/test-plan.json
+```
+
+### Run Specific Targets
+
+Run specific test targets without needing a full test plan:
+
+```bash
+cover run-targets Target1 Target2 Target3
+```
+
 ## Workflow
 
 1. **Analyze**: `cover` finds files changed in your PR.
