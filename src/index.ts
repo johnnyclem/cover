@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { getChangedFiles, getCurrentBranch } from './git';
+import { getChangedFiles, getCurrentBranch, getHeadCommit, validateBranchExists, getChangedSwiftLines, getChangedLinesPerFile } from './git';
 import { runXcodeTests, getCoverageData } from './xcode';
-import { processCoverage } from './coverage';
+import { processCoverage, processCoverageLegacy } from './coverage';
 import { printCoverageTable, logger, spinner } from './ui';
 import { selectAgent, generatePrompt, runAgent } from './agent';
 import { runTestFixLoop, fixFailure } from './fixer';
@@ -19,6 +19,10 @@ import { glob } from 'glob';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { parseCoverageArtifacts, findManifest, findExistingXcresult, getSupportedFormats } from './coverage-formats';
+import { calculatePRCoverage } from './pr-coverage';
+import { formatPRCoverageReport, printPRCoverageReport, formatPRCoverageSummaryLine } from './pr-coverage-report';
+import { CoverageFormat } from './types';
 
 const program = new Command();
 
@@ -117,6 +121,8 @@ program
   .option('-p, --project <path>', 'Path to .xcodeproj')
   .option('--no-coverage', 'Skip coverage generation')
   .option('--refresh-destinations', 'Refresh the cached list of Xcode run destinations')
+  .option('-v, --verbose', 'Show detailed path matching and debugging information')
+  .option('--pr-lines-only', 'Also show line-level coverage for PR changes')
   .action(async (options) => {
     try {
       logger.info('Starting Cover...');
@@ -305,11 +311,37 @@ program
           const coverageJson = await getCoverageData(xcresultPath);
           
           // 6. Evaluate
-          const report = processCoverage(coverageJson, changedFiles);
+          const report = processCoverageLegacy(coverageJson, changedFiles);
           printCoverageTable(report);
 
+          // 6b. Show PR line-level coverage if requested
+          if (options.prLinesOnly) {
+            try {
+              const diffResult = await getChangedSwiftLines(options.branch);
+              if (diffResult.files.length > 0) {
+                const lineCoverageData = await parseCoverageArtifacts({
+                  format: 'xccov',
+                  paths: [xcresultPath],
+                  parserOptions: { verbose: options.verbose }
+                });
+                const headCommit = await getHeadCommit();
+                const prResult = await calculatePRCoverage(diffResult, lineCoverageData, { verbose: options.verbose });
+                prResult.metadata.baseBranch = options.branch;
+                prResult.metadata.headCommit = headCommit;
+                prResult.metadata.coverageFormat = 'xccov';
+                
+                console.log(''); // Separator
+                printPRCoverageReport(prResult, { threshold: parseFloat(options.threshold), verbose: options.verbose });
+              }
+            } catch (prError: any) {
+              if (options.verbose) {
+                logger.warn(`Could not calculate PR line coverage: ${prError.message}`);
+              }
+            }
+          }
+
           // 7. Check Threshold
-          const failedFiles = report.filter(f => f.lineCoverage < parseFloat(options.threshold));
+          const failedFiles = report.filter((f: { lineCoverage: number }) => f.lineCoverage < parseFloat(options.threshold));
           
           if (failedFiles.length === 0) {
             logger.success('All changed files meet the coverage threshold!');
@@ -337,7 +369,7 @@ program
               break;
           } else if (action === 'Generate Tests with Agent') {
               const agent = await selectAgent();
-              const targetFile = failedFiles.sort((a, b) => a.lineCoverage - b.lineCoverage)[0];
+              const targetFile = failedFiles.sort((a: { lineCoverage: number }, b: { lineCoverage: number }) => a.lineCoverage - b.lineCoverage)[0];
               
               logger.info(`Targeting ${targetFile.path} (${targetFile.lineCoverage.toFixed(1)}%)`);
               const prompt = generatePrompt(targetFile.path); 
@@ -375,7 +407,7 @@ program.command('test-plan <path>')
         if (options.coverage !== false) {
             logger.info('Processing coverage...');
             const coverageJson = await getCoverageData(result.xcresultPath);
-            const report = processCoverage(coverageJson, []);
+            const report = processCoverageLegacy(coverageJson, []);
             printCoverageTable(report);
         }
         
@@ -452,7 +484,7 @@ program.command('run-targets <targets...>')
         if (options.coverage !== false) {
             logger.info('Processing coverage...');
             const coverageJson = await getCoverageData(resultBundlePath);
-            const report = processCoverage(coverageJson, []);
+            const report = processCoverageLegacy(coverageJson, []);
             printCoverageTable(report);
         }
         
@@ -462,5 +494,135 @@ program.command('run-targets <targets...>')
         process.exit(1);
     }
 });
+
+program.command('pr-coverage')
+  .description('Calculate line coverage for PR changes only')
+  .option('-b, --base <branch>', 'Base branch to compare against', 'main')
+  .option('--coverage-format <format>', 'Coverage format (xccov, lcov, jacoco, llvm-cov)')
+  .option('--coverage-path <paths...>', 'Path(s) to coverage artifacts (supports globs)')
+  .option('--manifest <path>', 'Path to coverage manifest JSON file')
+  .option('-s, --scheme <scheme>', 'Xcode scheme (if generating coverage via xcodebuild)')
+  .option('-t, --threshold <number>', 'Minimum coverage threshold percentage', '80')
+  .option('--strict', 'Spec-compliant plain text output (no colors/emojis)')
+  .option('--fast', 'Skip line-level coverage parsing, use file-level heuristics')
+  .option('-v, --verbose', 'Show detailed debug output')
+  .action(async (options) => {
+    try {
+      const verbose = options.verbose || false;
+      const threshold = parseFloat(options.threshold);
+      const strict = options.strict || false;
+
+      logger.info('Calculating PR line coverage...');
+
+      // 1. Validate base branch exists
+      if (verbose) logger.info(`Validating base branch: ${options.base}`);
+      const branchExists = await validateBranchExists(options.base);
+      if (!branchExists) {
+        logger.error(`Base branch '${options.base}' does not exist. Try 'git fetch origin ${options.base}' first.`);
+        process.exit(1);
+      }
+
+      // 2. Get line-level diff
+      if (verbose) logger.info('Getting line-level diff...');
+      const diffResult = await getChangedSwiftLines(options.base);
+      
+      if (diffResult.files.length === 0) {
+        logger.success('No changed Swift/ObjC files found.');
+        return;
+      }
+
+      logger.info(`Found ${diffResult.files.length} changed file(s) with ${diffResult.totalAddedLines} new/updated lines`);
+
+      // 3. Find or generate coverage data
+      let coverageData: Map<string, any>;
+      let coverageFormat: CoverageFormat = 'xccov';
+
+      if (options.manifest) {
+        // Use manifest file
+        if (verbose) logger.info(`Loading manifest: ${options.manifest}`);
+        coverageData = await parseCoverageArtifacts({
+          manifestPath: options.manifest,
+          parserOptions: { verbose, fast: options.fast }
+        });
+      } else if (options.coveragePath && options.coveragePath.length > 0) {
+        // Use explicit coverage paths
+        if (options.coverageFormat) {
+          coverageFormat = options.coverageFormat as CoverageFormat;
+        }
+        if (verbose) logger.info(`Parsing coverage from: ${options.coveragePath.join(', ')}`);
+        coverageData = await parseCoverageArtifacts({
+          format: coverageFormat,
+          paths: options.coveragePath,
+          parserOptions: { verbose, fast: options.fast }
+        });
+      } else {
+        // Try to auto-detect coverage source
+        const manifest = findManifest();
+        if (manifest) {
+          if (verbose) logger.info(`Found manifest: ${manifest}`);
+          coverageData = await parseCoverageArtifacts({
+            manifestPath: manifest,
+            parserOptions: { verbose, fast: options.fast }
+          });
+        } else {
+          // Try to find existing xcresult
+          const xcresult = await findExistingXcresult();
+          if (xcresult) {
+            if (verbose) logger.info(`Found xcresult: ${xcresult}`);
+            coverageData = await parseCoverageArtifacts({
+              format: 'xccov',
+              paths: [xcresult],
+              parserOptions: { verbose, fast: options.fast }
+            });
+          } else if (options.scheme) {
+            // Run tests to generate coverage
+            logger.info('No coverage found. Running tests to generate coverage...');
+            const result = await runXcodeTests(options.scheme, undefined);
+            if (!result.success) {
+              logger.error('Tests failed. Cannot generate coverage data.');
+              process.exit(1);
+            }
+            coverageData = await parseCoverageArtifacts({
+              format: 'xccov',
+              paths: [result.xcresultPath],
+              parserOptions: { verbose, fast: options.fast }
+            });
+          } else {
+            logger.error('No coverage data found. Provide --coverage-path, --manifest, or --scheme to generate coverage.');
+            logger.info(`Supported formats: ${getSupportedFormats().join(', ')}`);
+            process.exit(1);
+          }
+        }
+      }
+
+      if (verbose) logger.info(`Coverage data loaded for ${coverageData.size} files`);
+
+      // 4. Calculate PR coverage
+      const headCommit = await getHeadCommit();
+      const prCoverageResult = await calculatePRCoverage(diffResult, coverageData, { verbose });
+      
+      // Fill in metadata
+      prCoverageResult.metadata.baseBranch = options.base;
+      prCoverageResult.metadata.headCommit = headCommit;
+      prCoverageResult.metadata.coverageFormat = coverageFormat;
+      prCoverageResult.metadata.fast = options.fast || false;
+
+      // 5. Output report
+      printPRCoverageReport(prCoverageResult, { strict, threshold, verbose });
+
+      // 6. Check threshold
+      const passing = prCoverageResult.summary.lineCoveragePercent >= threshold;
+      if (passing) {
+        logger.success(`PR coverage ${prCoverageResult.summary.lineCoveragePercent.toFixed(1)}% meets threshold of ${threshold}%`);
+      } else {
+        logger.error(`PR coverage ${prCoverageResult.summary.lineCoveragePercent.toFixed(1)}% is below threshold of ${threshold}%`);
+        process.exit(1);
+      }
+
+    } catch (error: any) {
+      logger.error(error.message || error);
+      process.exit(1);
+    }
+  });
 
 program.parse(process.argv);

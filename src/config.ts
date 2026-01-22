@@ -14,12 +14,19 @@ export interface CoverConfig {
     paths?: {
         source: string;
         tests: string;
+        projectRoot?: string;  // Root path for normalizing coverage paths
     };
     js?: {
         enableCoverage?: boolean;
         coverageThreshold?: number;
         testPatterns?: string[];
         sourcePatterns?: string[];
+    };
+    xcode?: {
+        // Patterns to identify test files (excluded from coverage checks)
+        testFilePatterns?: string[];
+        // Patterns to identify test utility files (flagged separately)
+        testUtilPatterns?: string[];
     };
 }
 

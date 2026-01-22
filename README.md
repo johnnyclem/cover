@@ -8,6 +8,8 @@ An automated TDD/Coverage CLI utility for iOS/macOS and JavaScript/TypeScript pr
 - **Framework Auto-Detection**: Automatically detects Jest, Vitest, Mocha, Cypress, Playwright, or XCTest.
 - **Git Integration**: Automatically detects changed files between your branch and `main`.
 - **Focused Coverage Analysis**: Filters coverage reports to focus *only* on the files you modified.
+- **PR Line-Level Coverage**: Calculates coverage specifically for new/modified lines in your PR, not just files.
+- **Multi-Format Support**: Supports xccov, lcov, JaCoCo, and llvm-cov coverage formats.
 - **AI Agent Integration**: Generates tests or fixes failures using AI agents (opencode, claude-code, codex-cli, gemini-cli) or a local/remote LLM.
 - **Interactive Loop**: Repeats the process until your coverage threshold (default 80%) is met.
 
@@ -51,6 +53,8 @@ cover check [options]
 | `-p, --project <path>` | Path to .xcodeproj | - |
 | `--no-coverage` | Skip coverage generation | - |
 | `--refresh-destinations` | Refresh cached Xcode run destinations | - |
+| `-v, --verbose` | Show detailed path matching and debugging information | - |
+| `--pr-lines-only` | Also show line-level coverage for PR changes | - |
 
 ### `cover fix`
 
@@ -120,6 +124,72 @@ cover run-targets MyTests MyOtherTests [options]
 | `-p, --project <path>` | Path to .xcodeproj |
 | `--no-coverage` | Skip coverage generation |
 
+### `cover pr-coverage`
+
+Calculate line-level coverage specifically for PR changes. This command analyzes only the lines you've added or modified, providing precise coverage metrics for code review.
+
+```bash
+cover pr-coverage [options]
+```
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-b, --base <branch>` | Base branch to compare against | `main` |
+| `--coverage-format <format>` | Coverage format (xccov, lcov, jacoco, llvm-cov) | auto-detect |
+| `--coverage-path <paths...>` | Path(s) to coverage artifacts (supports globs) | - |
+| `--manifest <path>` | Path to coverage manifest JSON file | - |
+| `-s, --scheme <scheme>` | Xcode scheme (if generating coverage via xcodebuild) | - |
+| `-t, --threshold <number>` | Minimum coverage threshold percentage | `80` |
+| `--strict` | Spec-compliant plain text output (no colors/emojis) | - |
+| `--fast` | Skip line-level coverage parsing, use file-level heuristics | - |
+| `-v, --verbose` | Show detailed debug output | - |
+
+**Examples:**
+
+```bash
+# Auto-detect coverage and compare against main
+cover pr-coverage
+
+# Use a specific coverage file
+cover pr-coverage --coverage-path build/TestResult.xcresult
+
+# Compare against a different branch with higher threshold
+cover pr-coverage -b develop -t 90
+
+# CI mode with plain text output
+cover pr-coverage --strict --threshold 80
+
+# Fast mode (skips line-level parsing for better performance)
+cover pr-coverage --fast
+
+# Generate coverage if none exists
+cover pr-coverage -s MyAppTests
+```
+
+**Coverage Format Support:**
+
+| Format | Extensions | Description |
+|--------|------------|-------------|
+| `xccov` | `.xcresult` | Xcode test result bundles |
+| `lcov` | `.lcov`, `.info` | LCOV format (common in JS/TS) |
+| `jacoco` | `.xml` | JaCoCo XML reports (Java/Kotlin) |
+| `llvm-cov` | `.json` | LLVM coverage JSON export |
+
+**Coverage Manifest:**
+
+For projects with multiple coverage sources, create a `.cover-manifest.json`:
+
+```json
+{
+  "artifacts": [
+    { "format": "xccov", "path": "build/*.xcresult" },
+    { "format": "lcov", "path": "coverage/lcov.info" }
+  ]
+}
+```
+
 ## Supported Testing Frameworks
 
 | Framework | Type | Auto-Detected |
@@ -182,6 +252,16 @@ On first run, Cover checks for a local LLM server (default: `http://localhost:12
 3. **Report**: It shows a coverage table for *only* your changes.
 4. **Fix**: If coverage is low or tests fail, it offers AI-assisted fixes.
 5. **Repeat**: Re-runs tests after changes are applied.
+
+### PR Coverage Workflow
+
+For CI/CD integration or precise line-level analysis:
+
+1. **Diff**: Parses git diff to find exact lines added/modified.
+2. **Parse**: Loads coverage data from your preferred format (xccov, lcov, etc.).
+3. **Intersect**: Calculates which changed lines are covered vs uncovered.
+4. **Report**: Shows per-file and overall coverage for PR changes only.
+5. **Gate**: Exits with error if coverage is below threshold (great for CI).
 
 ## Requirements
 
