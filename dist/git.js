@@ -9,7 +9,9 @@ const ui_1 = require("./ui");
  */
 const getChangedFiles = async (baseBranch = 'main') => {
     try {
-        const { stdout } = await (0, execa_1.execa)('git', ['diff', '--name-only', `${baseBranch}...HEAD`]);
+        // Calculate merge base to compare working tree against common ancestor
+        const { stdout: mergeBase } = await (0, execa_1.execa)('git', ['merge-base', baseBranch, 'HEAD']);
+        const { stdout } = await (0, execa_1.execa)('git', ['diff', '--name-only', mergeBase.trim()]);
         const files = stdout.split('\n').filter(Boolean);
         return files.filter(f => f.endsWith('.swift') || f.endsWith('.m') || f.endsWith('.mm'));
     }
@@ -93,12 +95,13 @@ const parseHunkHeader = (line) => {
  */
 const getChangedLinesPerFile = async (baseBranch = 'main', fileFilter) => {
     try {
-        // Use triple-dot syntax to get all changes from the merge-base
+        // Calculate merge base to compare working tree against common ancestor
+        const { stdout: mergeBase } = await (0, execa_1.execa)('git', ['merge-base', baseBranch, 'HEAD']);
         // --unified=0 gives us exact line numbers without context lines
         const { stdout } = await (0, execa_1.execa)('git', [
             'diff',
             '--unified=0',
-            `${baseBranch}...HEAD`
+            mergeBase.trim()
         ]);
         const files = [];
         let currentFile = null;

@@ -8,7 +8,9 @@ import { DiffHunk, FileDiff, PRDiffResult } from './types';
  */
 export const getChangedFiles = async (baseBranch: string = 'main'): Promise<string[]> => {
   try {
-    const { stdout } = await execa('git', ['diff', '--name-only', `${baseBranch}...HEAD`]);
+    // Calculate merge base to compare working tree against common ancestor
+    const { stdout: mergeBase } = await execa('git', ['merge-base', baseBranch, 'HEAD']);
+    const { stdout } = await execa('git', ['diff', '--name-only', mergeBase.trim()]);
     const files = stdout.split('\n').filter(Boolean);
     return files.filter(f => f.endsWith('.swift') || f.endsWith('.m') || f.endsWith('.mm'));
   } catch (error) {
@@ -96,12 +98,14 @@ export const getChangedLinesPerFile = async (
   fileFilter?: (path: string) => boolean
 ): Promise<PRDiffResult> => {
   try {
-    // Use triple-dot syntax to get all changes from the merge-base
+    // Calculate merge base to compare working tree against common ancestor
+    const { stdout: mergeBase } = await execa('git', ['merge-base', baseBranch, 'HEAD']);
+
     // --unified=0 gives us exact line numbers without context lines
     const { stdout } = await execa('git', [
       'diff',
       '--unified=0',
-      `${baseBranch}...HEAD`
+      mergeBase.trim()
     ]);
 
     const files: FileDiff[] = [];
