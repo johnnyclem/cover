@@ -212,15 +212,18 @@ program
                 destination = result.selectedDestination;
                 // 4. Check for Failures
                 let testFailures = await (0, results_1.getTestFailures)(xcresultPath);
-                // If build failed, we might not have test results, or they might be stale.
-                // Prioritize build errors if success is false.
+                // If xcodebuild exited with non-zero, check for build errors.
+                // Note: xcodebuild exits non-zero for BOTH build failures AND test failures.
+                // Prioritize build errors (compilation/linker) over test failures.
                 if (!result.success) {
                     const buildFailures = (0, results_1.getBuildFailures)(result.log);
                     if (buildFailures.length > 0) {
                         testFailures = buildFailures;
                     }
                     else if (testFailures.length === 0) {
-                        ui_1.logger.error('Build failed but no structured errors found.');
+                        // No build errors and no test failures parsed - likely a test failure
+                        // that we couldn't extract from xcresult. Don't block coverage.
+                        ui_1.logger.warn('Tests failed but no structured failure details found in xcresult.');
                     }
                 }
                 if (testFailures.length > 0) {
@@ -255,8 +258,10 @@ program
                     }
                 }
                 // Determine if we should block coverage generation
-                // Block if: !success AND (no failures found OR failures are build failures)
-                const isRealBuildFailure = !result.success && (testFailures.length === 0 || testFailures.some(f => f.testCaseName === 'Build Failure'));
+                // Block only if there are actual build failures (compilation/linker errors)
+                // Test failures (assertions) should NOT block coverage - xcodebuild exits non-zero for test failures too
+                const hasBuildErrors = testFailures.some(f => f.testCaseName === 'Build Failure') || (0, results_1.getBuildFailures)(result.log).length > 0;
+                const isRealBuildFailure = !result.success && hasBuildErrors;
                 if (isRealBuildFailure) {
                     ui_1.logger.error('Cannot generate coverage data because the build failed.');
                     const { retry } = await inquirer_1.default.prompt([{
