@@ -47,6 +47,7 @@ program.command('fix')
     .description('Run tests and autonomously fix failures using AI')
     .option('-s, --scheme <scheme>', 'Xcode scheme to test')
     .option('-d, --destination <destination>', 'Simulator destination')
+    .option('-tp, --test-plan <plan>', 'Xcode test plan name (optional)')
     .option('-r, --retries <number>', 'Max retries', '3')
     .option('-f, --framework <framework>', 'Testing framework (auto-detected if not specified)')
     .option('-t, --test-files <files...>', 'Specific test files to run')
@@ -96,7 +97,7 @@ program.command('fix')
                     }]);
                 scheme = answers.scheme;
             }
-            await (0, fixer_1.runTestFixLoop)(scheme, options.destination, parseInt(options.retries), options.refreshDestinations);
+            await (0, fixer_1.runTestFixLoop)(scheme, options.destination, parseInt(options.retries), options.refreshDestinations, options.testPlan);
         }
     }
     catch (error) {
@@ -111,12 +112,13 @@ program
     .option('-f, --framework <framework>', 'Testing framework (auto-detected if not specified)')
     .option('-b, --branch <branch>', 'Base branch to compare against', 'main')
     .option('-t, --threshold <number>', 'Coverage threshold percentage', '80')
-    .option('-w, --workspace <path>', 'Path to .xcworkspace')
-    .option('-p, --project <path>', 'Path to .xcodeproj')
+    .option('-w, --workspace <path>', '.xcworkspace path')
+    .option('-p, --project <path>', '.xcodeproj path')
+    .option('-tp, --test-plan <plan>', 'Xcode test plan name (optional)')
     .option('--no-coverage', 'Skip coverage generation')
     .option('--refresh-destinations', 'Refresh the cached list of Xcode run destinations')
-    .option('-v, --verbose', 'Show detailed path matching and debugging information')
-    .option('--pr-lines-only', 'Also show line-level coverage for PR changes')
+    .option('-v, --verbose', 'Verbose output')
+    .option('--pr-lines-only', 'Show only PR-changed lines in coverage report')
     .action(async (options) => {
     try {
         ui_1.logger.info('Starting Cover...');
@@ -212,7 +214,7 @@ program
                     options.scheme = scheme;
                 }
                 // 3. Run Tests
-                const result = await (0, xcode_1.runXcodeTests)(scheme, destination, options.project, options.workspace, options.refreshDestinations);
+                const result = await (0, xcode_1.runXcodeTests)(scheme, destination, options.project, options.workspace, options.refreshDestinations, options.testPlan);
                 const xcresultPath = result.xcresultPath;
                 destination = result.selectedDestination;
                 // 4. Check for Failures
@@ -352,6 +354,7 @@ program
 program.command('test-plan <path>')
     .description('Run tests from an Xcode testing plan JSON file')
     .option('-d, --destination <destination>', 'Simulator destination')
+    .option('-tp, --test-plan <plan>', 'Xcode test plan name (optional)')
     .option('-w, --workspace <path>', 'Path to .xcworkspace')
     .option('-p, --project <path>', 'Path to .xcodeproj')
     .option('--no-coverage', 'Skip coverage generation')
@@ -360,7 +363,7 @@ program.command('test-plan <path>')
         const plan = (0, test_plan_1.parseTestPlan)(planPath);
         ui_1.logger.info(`Loaded test plan: ${planPath}`);
         ui_1.logger.info(`Targets: ${plan.testTargets.map(t => t.target.name).join(', ')}`);
-        const result = await (0, test_plan_1.runTestPlan)(planPath, options.destination, options.project, options.workspace);
+        const result = await (0, test_plan_1.runTestPlan)(planPath, options.destination, options.project, options.workspace, options.testPlan);
         if (!result.success) {
             ui_1.logger.error('Tests failed.');
             process.exit(1);
@@ -382,6 +385,7 @@ program.command('run-targets <targets...>')
     .description('Run specific test targets (e.g., cover run-targets MyTests MyOtherTests)')
     .option('-s, --scheme <scheme>', 'Xcode scheme (required if no .xcscheme found)')
     .option('-d, --destination <destination>', 'Simulator destination')
+    .option('-tp, --test-plan <plan>', 'Xcode test plan name (optional)')
     .option('-w, --workspace <path>', 'Path to .xcworkspace')
     .option('-p, --project <path>', 'Path to .xcodeproj')
     .option('--no-coverage', 'Skip coverage generation')
@@ -415,6 +419,9 @@ program.command('run-targets <targets...>')
         const testArgs = ['test', ...baseArgs, '-enableCodeCoverage', 'YES', '-resultBundlePath', resultBundlePath];
         if (options.destination) {
             testArgs.push('-destination', options.destination);
+        }
+        if (options.testPlan) {
+            testArgs.push('-testPlan', options.testPlan);
         }
         for (const target of targets) {
             testArgs.push('-only-testing', target);

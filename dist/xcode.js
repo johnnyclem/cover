@@ -14,6 +14,7 @@ const inquirer_1 = __importDefault(require("inquirer"));
 // Cache configuration
 const CACHE_DIR = path_1.default.join(os_1.default.homedir(), '.cover');
 const DESTINATIONS_CACHE_FILE = path_1.default.join(CACHE_DIR, 'xcode-destinations-cache.json');
+const TEST_PLANS_CACHE_FILE = path_1.default.join(CACHE_DIR, 'xcode-test-plans-cache.json');
 const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 const createCacheDir = () => {
     if (!fs_1.default.existsSync(CACHE_DIR)) {
@@ -53,6 +54,41 @@ const saveDestinationsToCache = (scheme, baseArgs, destinations) => {
             baseArgsHash: getBaseArgsHash(baseArgs)
         };
         fs_1.default.writeFileSync(DESTINATIONS_CACHE_FILE, JSON.stringify(cacheData, null, 2));
+    }
+    catch (error) {
+        // Silently fail to save cache
+    }
+};
+const loadTestPlansFromCache = async (scheme, baseArgs) => {
+    try {
+        if (!fs_1.default.existsSync(TEST_PLANS_CACHE_FILE)) {
+            return null;
+        }
+        const cacheData = JSON.parse(fs_1.default.readFileSync(TEST_PLANS_CACHE_FILE, 'utf-8'));
+        const baseArgsHash = getBaseArgsHash(baseArgs);
+        const now = Date.now();
+        // Check if cache is valid (same scheme, same base args, and not expired)
+        if (cacheData.scheme === scheme &&
+            cacheData.baseArgsHash === baseArgsHash &&
+            (now - cacheData.timestamp) < CACHE_EXPIRY_MS) {
+            return cacheData.testPlans;
+        }
+    }
+    catch (error) {
+        // If there's any error reading cache, just ignore it
+    }
+    return null;
+};
+const saveTestPlansToCache = (scheme, baseArgs, testPlans) => {
+    try {
+        createCacheDir();
+        const cacheData = {
+            testPlans,
+            timestamp: Date.now(),
+            scheme,
+            baseArgsHash: getBaseArgsHash(baseArgs)
+        };
+        fs_1.default.writeFileSync(TEST_PLANS_CACHE_FILE, JSON.stringify(cacheData, null, 2));
     }
     catch (error) {
         // Silently fail to save cache
@@ -144,12 +180,80 @@ const getDestinations = async (scheme, baseArgs, forceRefresh = false) => {
         return [];
     }
 };
-const runXcodeTests = async (scheme, destination, projectPath, workspacePath, refreshDestinations = false) => {
+const getTestPlans = async (scheme, baseArgs, forceRefresh = false) => {
+    // Try to load from cache first unless force refresh is requested
+    if (!forceRefresh) {
+        const cachedTestPlans = await loadTestPlansFromCache(scheme, baseArgs);
+        if (cachedTestPlans) {
+            ui_1.logger.info('Using cached test plans.');
+            return cachedTestPlans;
+        }
+    }
+    try {
+        ui_1.logger.info('Discovering available test plans...');
+        const testPlanArgs = [...baseArgs, '-scheme', scheme, '-showTestPlans'];
+        const { stdout } = await (0, execa_1.execa)('xcodebuild', testPlanArgs);
+        const lines = stdout.split('\n');
+        const testPlans = [];
+        const seenPlans = new Set();
+        lines.forEach((line) => {
+            const trimmed = line.trim();
+            // Test plans are listed after "Test plans:" header
+            // Format can be: "    TestPlanName" or lines containing .xctestplan
+            if (trimmed && !trimmed.includes('Test plans:') && !trimmed.includes('---')) {
+                // Remove .xctestplan extension if present
+                let planName = trimmed.replace('.xctestplan', '').trim();
+                if (planName && !seenPlans.has(planName)) {
+                    testPlans.push(planName);
+                    seenPlans.add(planName);
+                }
+            }
+        });
+        // Save to cache for future use
+        if (testPlans.length > 0) {
+            saveTestPlansToCache(scheme, baseArgs, testPlans);
+        }
+        return testPlans;
+    }
+    catch (error) {
+        // -showTestPlans might not be supported in all Xcode versions
+        // or there might be no test plans defined
+        ui_1.logger.info('Could not discover test plans (this is normal if none are defined).');
+        return [];
+    }
+};
+const runXcodeTests = async (scheme, destination, projectPath, workspacePath, refreshDestinations = false, testPlan) => {
     ui_1.logger.step(`Preparing tests for scheme: ${scheme}`);
     // Create a temporary derived data path to easily locate logs/results
     const derivedDataPath = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'cover-derived-data-'));
     const resultBundlePath = path_1.default.join(derivedDataPath, 'TestResult.xcresult');
     const baseArgs = await detectBaseArgs(projectPath, workspacePath);
+    // Test Plan Handling
+    let selectedTestPlan = testPlan;
+    if (!selectedTestPlan) {
+        const testPlanSpinner = (0, ui_1.spinner)('Checking available test plans...');
+        testPlanSpinner.start();
+        const availableTestPlans = await getTestPlans(scheme, baseArgs, false);
+        testPlanSpinner.stop();
+        if (availableTestPlans.length > 0) {
+            const answer = await inquirer_1.default.prompt([{
+                    type: 'input',
+                    name: 'testPlan',
+                    message: 'Enter test plan name (press Enter to skip):',
+                    default: '',
+                    validate: (input) => {
+                        // Empty input is valid (means skip)
+                        if (!input)
+                            return true;
+                        // Check if input matches any available test plans
+                        if (availableTestPlans.includes(input))
+                            return true;
+                        return `Test plan "${input}" not found. Available: ${availableTestPlans.join(', ')}`;
+                    }
+                }]);
+            selectedTestPlan = answer.testPlan || undefined;
+        }
+    }
     // Destination Handling
     let selectedDestination = destination;
     if (!selectedDestination) {
@@ -264,16 +368,21 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
             selectedDestination = input;
         }
     }
-    const testSpin = (0, ui_1.spinner)(`Running tests on ${selectedDestination}...`).start();
+    const testSpin = (0, ui_1.spinner)(`Running tests on ${selectedDestination}${selectedTestPlan ? ` with test plan: ${selectedTestPlan}` : ''}...`).start();
     try {
-        const subprocess = (0, execa_1.execa)('xcodebuild', [
+        const testArgs = [
             'test',
             ...baseArgs,
             '-scheme', scheme,
             '-destination', selectedDestination,
             '-enableCodeCoverage', 'YES',
             '-resultBundlePath', resultBundlePath
-        ], {
+        ];
+        // Add test plan if specified
+        if (selectedTestPlan) {
+            testArgs.push('-testPlan', selectedTestPlan);
+        }
+        const subprocess = (0, execa_1.execa)('xcodebuild', testArgs, {
             all: true,
             stdio: ['ignore', 'pipe', 'pipe']
         });

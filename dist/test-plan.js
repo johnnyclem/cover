@@ -22,7 +22,7 @@ const getTestTargetsFromPlan = (planPath) => {
     return plan.testTargets.map(t => t.target.identifier);
 };
 exports.getTestTargetsFromPlan = getTestTargetsFromPlan;
-const runTestPlan = async (planPath, destination, projectPath, workspacePath) => {
+const runTestPlan = async (planPath, destination, projectPath, workspacePath, testPlanName) => {
     const plan = (0, exports.parseTestPlan)(planPath);
     const targets = plan.testTargets.map(t => t.target.identifier);
     ui_1.logger.step(`Running test plan: ${planPath}`);
@@ -51,6 +51,9 @@ const runTestPlan = async (planPath, destination, projectPath, workspacePath) =>
     const testArgs = ['test', ...baseArgs, '-enableCodeCoverage', 'YES', '-resultBundlePath', resultBundlePath];
     if (destination) {
         testArgs.push('-destination', destination);
+    }
+    if (testPlanName) {
+        testArgs.push('-testPlan', testPlanName);
     }
     for (const target of targets) {
         testArgs.push('-only-testing', target);

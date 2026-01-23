@@ -4,7 +4,7 @@ import { getTestFailures, getBuildFailures, TestFailure } from './results';
 import { getAnalyzerClient, getFixerClient } from './llm';
 import { logger, spinner } from './ui';
 
-export const runTestFixLoop = async (scheme: string, destination: string | undefined, maxRetries: number = 3, refreshDestinations: boolean = false) => {
+export const runTestFixLoop = async (scheme: string, destination: string | undefined, maxRetries: number = 3, refreshDestinations: boolean = false, testPlan?: string) => {
     let retries = 0;
     let currentDestination = destination;
 
@@ -16,7 +16,7 @@ export const runTestFixLoop = async (scheme: string, destination: string | undef
         logger.info(`\n--- Test Run ${retries + 1}/${maxRetries} ---`);
         
         // runXcodeTests now returns the path even on failure, thanks to the recent fix
-        const { xcresultPath, selectedDestination, success, log } = await runXcodeTests(scheme, currentDestination, undefined, undefined, refreshDestinations);
+        const { xcresultPath, selectedDestination, success, log } = await runXcodeTests(scheme, currentDestination, undefined, undefined, refreshDestinations, testPlan);
         
         // Update destination for next run so we don't ask again
         currentDestination = selectedDestination;

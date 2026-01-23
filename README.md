@@ -51,6 +51,7 @@ cover check [options]
 | `-t, --threshold <number>` | Coverage threshold percentage | `80` |
 | `-w, --workspace <path>` | Path to .xcworkspace | - |
 | `-p, --project <path>` | Path to .xcodeproj | - |
+| `-tp, --test-plan <plan>` | Xcode test plan name (optional, auto-discovered with prompt) | - |
 | `--no-coverage` | Skip coverage generation | - |
 | `--refresh-destinations` | Refresh cached Xcode run destinations | - |
 | `-v, --verbose` | Show detailed path matching and debugging information | - |
@@ -70,6 +71,7 @@ cover fix [options]
 |--------|-------------|---------|
 | `-s, --scheme <scheme>` | Xcode scheme to test | - |
 | `-d, --destination <destination>` | Simulator destination | - |
+| `-tp, --test-plan <plan>` | Xcode test plan name (optional, auto-discovered with prompt) | - |
 | `-r, --retries <number>` | Max retries for auto-fix | `3` |
 | `-f, --framework <framework>` | Testing framework | auto-detected |
 | `-t, --test-files <files...>` | Specific test files to run | - |
@@ -102,6 +104,7 @@ cover test-plan path/to/test-plan.json [options]
 | Option | Description |
 |--------|-------------|
 | `-d, --destination <destination>` | Simulator destination |
+| `-tp, --test-plan <plan>` | Xcode test plan name (optional, auto-discovered with prompt) |
 | `-w, --workspace <path>` | Path to .xcworkspace |
 | `-p, --project <path>` | Path to .xcodeproj |
 | `--no-coverage` | Skip coverage generation |
@@ -120,6 +123,7 @@ cover run-targets MyTests MyOtherTests [options]
 |--------|-------------|
 | `-s, --scheme <scheme>` | Xcode scheme |
 | `-d, --destination <destination>` | Simulator destination |
+| `-tp, --test-plan <plan>` | Xcode test plan name (optional, auto-discovered with prompt) |
 | `-w, --workspace <path>` | Path to .xcworkspace |
 | `-p, --project <path>` | Path to .xcodeproj |
 | `--no-coverage` | Skip coverage generation |

@@ -64,7 +64,7 @@ export const getTestTargetsFromPlan = (planPath: string): string[] => {
     return plan.testTargets.map(t => t.target.identifier);
 };
 
-export const runTestPlan = async (planPath: string, destination?: string, projectPath?: string, workspacePath?: string): Promise<{ xcresultPath: string; selectedDestination: string; success: boolean; log: string; targets: string[] }> => {
+export const runTestPlan = async (planPath: string, destination?: string, projectPath?: string, workspacePath?: string, testPlanName?: string): Promise<{ xcresultPath: string; selectedDestination: string; success: boolean; log: string; targets: string[] }> => {
     const plan = parseTestPlan(planPath);
     const targets = plan.testTargets.map(t => t.target.identifier);
     
@@ -95,6 +95,10 @@ export const runTestPlan = async (planPath: string, destination?: string, projec
     
     if (destination) {
         testArgs.push('-destination', destination);
+    }
+    
+    if (testPlanName) {
+        testArgs.push('-testPlan', testPlanName);
     }
     
     for (const target of targets) {
