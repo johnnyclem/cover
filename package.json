@@ -17,10 +17,12 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
     "chalk": "^5.6.2",
     "execa": "^9.6.1",
     "glob": "^13.0.0",
     "inquirer": "^13.2.0",
-    "openai": "^6.16.0"
+    "openai": "^6.16.0",
+    "zod": "^4.3.6"
   }
 }

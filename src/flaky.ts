@@ -1,0 +1,170 @@
+import { logger, spinner } from './ui';
+import { MCPClient } from './mcp-client';
+import { loadConfig } from './config';
+import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+
+export interface FlakyTest {
+  testName: string;
+  passRate: number;      // 0-100
+  totalRuns: number;
+  lastFailure?: string;  // ISO date
+  failureMessages: string[];
+}
+
+export interface FlakyTestReport {
+  tests: FlakyTest[];
+  source: 'circleci' | 'local';
+  projectSlug?: string;
+  generatedAt: string;
+}
+
+// Fetch flaky tests from CircleCI MCP
+export async function getFlakyTestsFromCircleCI(
+  projectSlug: string
+): Promise<FlakyTestReport | null> {
+  const config = loadConfig();
+  const mcpCommand = config?.circleci?.mcpCommand || 'npx';
+  const mcpArgs = config?.circleci?.mcpArgs || ['-y', '@circleci/mcp-server'];
+
+  const client = new MCPClient(mcpCommand, mcpArgs);
+  const connected = await client.connect();
+
+  if (!connected) {
+    logger.warn('Could not connect to CircleCI MCP server.');
+    return null;
+  }
+
+  try {
+    logger.info(`Fetching flaky tests for ${projectSlug}...`);
+    const spin = spinner('Querying CircleCI...').start();
+    
+    // The tool name might be 'find_flaky_tests' or 'circleci-mcp-server_find_flaky_tests'
+    
+    let result: CallToolResult;
+    try {
+        result = await client.callTool('find_flaky_tests', {
+            projectSlug
+        });
+    } catch (e) {
+        // Try with params wrapper if the first attempt failed (some implementations differ)
+        result = await client.callTool('find_flaky_tests', {
+            params: { projectSlug }
+        });
+    }
+
+    spin.stop();
+    
+    if (!result || !result.content || result.content.length === 0) {
+        logger.warn('No data returned from CircleCI.');
+        return null;
+    }
+
+    // Parse result content - usually a text block or JSON string
+    const contentItem = result.content[0];
+    if (contentItem.type !== 'text') {
+        logger.warn('Received non-text content from CircleCI MCP.');
+        return null;
+    }
+    const content = contentItem.text;
+    
+    // The output from find_flaky_tests is likely human-readable text.
+    // We need to parse it or just display it.
+    // If it's structured, great. If not, we might just have to return it as-is or try to parse.
+    
+    // For now, let's assume we can parse it if it's JSON, or return a generic report.
+    // Actually, the tool description says "This tool retrieves information about flaky tests...".
+    
+    // Let's try to parse if it looks like JSON
+    let tests: FlakyTest[] = [];
+    
+    try {
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+            // Map to our format
+            tests = parsed.map((t: any) => ({
+                testName: t.test_name || t.name || 'Unknown',
+                passRate: t.success_rate ? t.success_rate * 100 : 0,
+                totalRuns: t.runs || 0,
+                lastFailure: t.last_failure,
+                failureMessages: []
+            }));
+        }
+    } catch {
+        // Not JSON, probably text table.
+        // We'll return an empty list but maybe log the text for the user?
+        logger.info(content);
+        return {
+            tests: [], // Empty because we printed the output directly
+            source: 'circleci',
+            projectSlug,
+            generatedAt: new Date().toISOString()
+        };
+    }
+
+    return {
+      tests,
+      source: 'circleci',
+      projectSlug,
+      generatedAt: new Date().toISOString()
+    };
+
+  } catch (error: any) {
+    logger.error(`Error querying CircleCI: ${error.message}`);
+    return null;
+  } finally {
+    await client.close();
+  }
+}
+
+// Get flaky tests (tries CircleCI first, falls back to local)
+export async function getFlakyTests(options: {
+  projectSlug?: string;
+  gitRemoteURL?: string;
+  workspaceRoot?: string;
+}): Promise<FlakyTestReport> {
+  const config = loadConfig();
+  const slug = options.projectSlug || config?.circleci?.projectSlug;
+
+  // Try CircleCI MCP first
+  if (slug) {
+    const circleciResult = await getFlakyTestsFromCircleCI(slug);
+    if (circleciResult) {
+      return circleciResult;
+    }
+  } else {
+      logger.info('No project slug configured. Add "circleci.projectSlug" to .coverrc or use --project-slug');
+  }
+  
+  // Fallback to local history (placeholder)
+  return {
+    tests: [],
+    source: 'local',
+    generatedAt: new Date().toISOString()
+  };
+}
+
+// Print flaky test report
+export function printFlakyTestReport(report: FlakyTestReport): void {
+  if (report.source === 'circleci' && report.tests.length === 0) {
+      // We already printed the text output in getFlakyTestsFromCircleCI
+      return;
+  }
+
+  if (report.tests.length === 0) {
+    logger.success('No flaky tests detected!');
+    return;
+  }
+  
+  console.log('\nFlaky Tests Report:');
+  console.log(`Source: ${report.source}`);
+  if (report.projectSlug) console.log(`Project: ${report.projectSlug}`);
+  console.log(`Generated: ${report.generatedAt}\n`);
+  
+  // Simple table output
+  console.log('Test Name                                  | Pass Rate | Runs');
+  console.log('-------------------------------------------|-----------|-----');
+  for (const test of report.tests) {
+    const name = test.testName.length > 40 ? test.testName.substring(0, 37) + '...' : test.testName.padEnd(40);
+    console.log(`${name} | ${test.passRate.toFixed(1)}%    | ${test.totalRuns}`);
+  }
+}
