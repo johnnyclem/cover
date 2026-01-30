@@ -24,7 +24,7 @@ const runTestFixLoop = async (scheme, destination, maxRetries = 3, refreshDestin
         let failures = [];
         if (!success) {
             ui_1.logger.error('Build failed. Analyzing build logs...');
-            failures = (0, results_1.getBuildFailures)(log);
+            failures = await (0, results_1.getBuildFailures)(log);
             if (failures.length === 0) {
                 ui_1.logger.warn('Build failed but no standard error messages found in log.');
                 // Fallback to generic error if possible, or just break

@@ -27,6 +27,8 @@ const os_1 = __importDefault(require("os"));
 const coverage_formats_1 = require("./coverage-formats");
 const pr_coverage_1 = require("./pr-coverage");
 const pr_coverage_report_1 = require("./pr-coverage-report");
+const flaky_1 = require("./flaky");
+const xcsift_1 = require("./xcsift");
 const program = new commander_1.Command();
 program
     .name('cover')
@@ -99,6 +101,60 @@ program.command('fix')
             }
             await (0, fixer_1.runTestFixLoop)(scheme, options.destination, parseInt(options.retries), options.refreshDestinations, options.testPlan);
         }
+    }
+    catch (error) {
+        ui_1.logger.error(error.message || error);
+        process.exit(1);
+    }
+});
+async function readStdin() {
+    const { stdin } = process;
+    if (stdin.isTTY)
+        return '';
+    let result = '';
+    stdin.setEncoding('utf8');
+    for await (const chunk of stdin) {
+        result += chunk;
+    }
+    return result;
+}
+program
+    .command('flaky')
+    .description('Detect and report flaky tests')
+    .option('--project-slug <slug>', 'CircleCI project slug (e.g., gh/org/repo)')
+    .option('--threshold <number>', 'Pass rate threshold for flagging (default: 95)', '95')
+    .action(async (options) => {
+    try {
+        const report = await (0, flaky_1.getFlakyTests)({
+            projectSlug: options.projectSlug,
+            workspaceRoot: process.cwd()
+        });
+        (0, flaky_1.printFlakyTestReport)(report);
+    }
+    catch (error) {
+        ui_1.logger.error(error.message || error);
+        process.exit(1);
+    }
+});
+program.command('parse')
+    .description('Parse xcodebuild/swift output using xcsift')
+    .option('-w, --warnings', 'Include warnings')
+    .option('-c, --coverage', 'Include coverage')
+    .option('--slow-threshold <seconds>', 'Slow test threshold')
+    .action(async (options) => {
+    try {
+        // Read from stdin and parse
+        const input = await readStdin();
+        if (!input) {
+            ui_1.logger.error('No input provided via stdin.');
+            process.exit(1);
+        }
+        const result = await (0, xcsift_1.parseOutput)(input, {
+            includeWarnings: options.warnings,
+            includeCoverage: options.coverage,
+            slowThreshold: options.slowThreshold ? parseFloat(options.slowThreshold) : undefined
+        });
+        console.log(JSON.stringify(result, null, 2));
     }
     catch (error) {
         ui_1.logger.error(error.message || error);
@@ -223,7 +279,7 @@ program
                 // Note: xcodebuild exits non-zero for BOTH build failures AND test failures.
                 // Prioritize build errors (compilation/linker) over test failures.
                 if (!result.success) {
-                    const buildFailures = (0, results_1.getBuildFailures)(result.log);
+                    const buildFailures = await (0, results_1.getBuildFailures)(result.log);
                     if (buildFailures.length > 0) {
                         testFailures = buildFailures;
                     }
@@ -267,7 +323,8 @@ program
                 // Determine if we should block coverage generation
                 // Block only if there are actual build failures (compilation/linker errors)
                 // Test failures (assertions) should NOT block coverage - xcodebuild exits non-zero for test failures too
-                const hasBuildErrors = testFailures.some(f => f.testCaseName === 'Build Failure') || (0, results_1.getBuildFailures)(result.log).length > 0;
+                const additionalBuildFailures = await (0, results_1.getBuildFailures)(result.log);
+                const hasBuildErrors = testFailures.some(f => f.testCaseName === 'Build Failure') || additionalBuildFailures.length > 0;
                 const isRealBuildFailure = !result.success && hasBuildErrors;
                 if (isRealBuildFailure) {
                     ui_1.logger.error('Cannot generate coverage data because the build failed.');

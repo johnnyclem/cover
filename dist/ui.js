@@ -4,6 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.printCoverageTable = exports.spinner = exports.logger = void 0;
+exports.printXcsiftSummary = printXcsiftSummary;
+exports.printErrors = printErrors;
+exports.printWarnings = printWarnings;
 const chalk_1 = __importDefault(require("chalk"));
 const ora_1 = __importDefault(require("ora"));
 const cli_table3_1 = __importDefault(require("cli-table3"));
@@ -35,3 +38,46 @@ const printCoverageTable = (files) => {
     console.log(table.toString());
 };
 exports.printCoverageTable = printCoverageTable;
+function printXcsiftSummary(result) {
+    const { summary } = result;
+    console.log('\nBuild Summary:');
+    console.log(`  Status: ${result.status === 'success' ? chalk_1.default.green('SUCCESS') : chalk_1.default.red('FAILED')}`);
+    console.log(`  Errors: ${summary.errors}`);
+    console.log(`  Warnings: ${summary.warnings}`);
+    if (summary.passed_tests !== undefined) {
+        console.log(`  Tests: ${summary.passed_tests} passed, ${summary.failed_tests} failed`);
+    }
+    if (summary.test_time) {
+        console.log(`  Test Time: ${summary.test_time}`);
+    }
+}
+function printErrors(errors) {
+    // Group errors by file
+    const byFile = {};
+    for (const error of errors) {
+        if (!byFile[error.file])
+            byFile[error.file] = [];
+        byFile[error.file].push(error);
+    }
+    for (const [file, fileErrors] of Object.entries(byFile)) {
+        console.log(chalk_1.default.red(`\n${file}:`));
+        for (const error of fileErrors) {
+            console.log(`  ${chalk_1.default.gray(`Line ${error.line}:`)} ${error.message}`);
+        }
+    }
+}
+function printWarnings(warnings) {
+    // Group warnings by file
+    const byFile = {};
+    for (const warning of warnings) {
+        if (!byFile[warning.file])
+            byFile[warning.file] = [];
+        byFile[warning.file].push(warning);
+    }
+    for (const [file, fileWarnings] of Object.entries(byFile)) {
+        console.log(chalk_1.default.yellow(`\n${file}:`));
+        for (const warning of fileWarnings) {
+            console.log(`  ${chalk_1.default.gray(`Line ${warning.line}:`)} ${warning.message}`);
+        }
+    }
+}
