@@ -1,34 +1,20 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.LlvmCovParser = exports.JacocoParser = exports.LcovParser = exports.XccovParser = exports.BaseCoverageParser = void 0;
-exports.getParser = getParser;
-exports.detectFormat = detectFormat;
-exports.getSupportedFormats = getSupportedFormats;
-exports.resolveGlobPatterns = resolveGlobPatterns;
-exports.findManifest = findManifest;
-exports.loadManifest = loadManifest;
-exports.findExistingXcresult = findExistingXcresult;
-exports.parseCoverageArtifacts = parseCoverageArtifacts;
-const xccov_parser_1 = require("./xccov-parser");
-const lcov_parser_1 = require("./lcov-parser");
-const jacoco_parser_1 = require("./jacoco-parser");
-const llvm_cov_parser_1 = require("./llvm-cov-parser");
-const glob_1 = require("glob");
-const fs_1 = __importDefault(require("fs"));
+import { XccovParser } from './xccov-parser.js';
+import { LcovParser } from './lcov-parser.js';
+import { JacocoParser } from './jacoco-parser.js';
+import { LlvmCovParser } from './llvm-cov-parser.js';
+import { glob } from 'glob';
+import fs from 'fs';
 // Registry of all available parsers
 const parsers = [
-    new xccov_parser_1.XccovParser(),
-    new lcov_parser_1.LcovParser(),
-    new jacoco_parser_1.JacocoParser(),
-    new llvm_cov_parser_1.LlvmCovParser(),
+    new XccovParser(),
+    new LcovParser(),
+    new JacocoParser(),
+    new LlvmCovParser(),
 ];
 /**
  * Get the appropriate parser for a given format.
  */
-function getParser(format) {
+export function getParser(format) {
     const parser = parsers.find(p => p.format === format);
     if (!parser) {
         throw new Error(`Unsupported coverage format: ${format}. Supported formats: ${getSupportedFormats().join(', ')}`);
@@ -39,7 +25,7 @@ function getParser(format) {
  * Detect coverage format from file path/extension.
  * Returns null if format cannot be determined.
  */
-function detectFormat(filePath) {
+export function detectFormat(filePath) {
     for (const parser of parsers) {
         if (parser.canHandle(filePath)) {
             return parser.format;
@@ -50,17 +36,17 @@ function detectFormat(filePath) {
 /**
  * Get list of supported coverage formats.
  */
-function getSupportedFormats() {
+export function getSupportedFormats() {
     return parsers.map(p => p.format);
 }
 /**
  * Resolve glob patterns to actual file paths.
  */
-async function resolveGlobPatterns(patterns) {
+export async function resolveGlobPatterns(patterns) {
     const results = [];
     for (const pattern of patterns) {
         if (pattern.includes('*')) {
-            const matches = await (0, glob_1.glob)(pattern);
+            const matches = await glob(pattern);
             results.push(...matches);
         }
         else {
@@ -82,9 +68,9 @@ const MANIFEST_LOCATIONS = [
 /**
  * Try to find a manifest file in standard locations.
  */
-function findManifest() {
+export function findManifest() {
     for (const location of MANIFEST_LOCATIONS) {
-        if (fs_1.default.existsSync(location)) {
+        if (fs.existsSync(location)) {
             return location;
         }
     }
@@ -93,8 +79,8 @@ function findManifest() {
 /**
  * Load and parse a coverage manifest file.
  */
-function loadManifest(manifestPath) {
-    const content = fs_1.default.readFileSync(manifestPath, 'utf-8');
+export function loadManifest(manifestPath) {
+    const content = fs.readFileSync(manifestPath, 'utf-8');
     return JSON.parse(content);
 }
 /**
@@ -109,21 +95,21 @@ const XCRESULT_LOCATIONS = [
 /**
  * Try to find an existing xcresult bundle.
  */
-async function findExistingXcresult() {
+export async function findExistingXcresult() {
     for (const pattern of XCRESULT_LOCATIONS) {
         if (pattern.includes('*')) {
-            const matches = await (0, glob_1.glob)(pattern);
+            const matches = await glob(pattern);
             if (matches.length > 0) {
                 // Return the most recently modified one
                 const sorted = matches.sort((a, b) => {
-                    const statA = fs_1.default.statSync(a);
-                    const statB = fs_1.default.statSync(b);
+                    const statA = fs.statSync(a);
+                    const statB = fs.statSync(b);
                     return statB.mtimeMs - statA.mtimeMs;
                 });
                 return sorted[0];
             }
         }
-        else if (fs_1.default.existsSync(pattern)) {
+        else if (fs.existsSync(pattern)) {
             return pattern;
         }
     }
@@ -138,7 +124,7 @@ async function findExistingXcresult() {
  * - Manifest loading
  * - Calling the appropriate parser
  */
-async function parseCoverageArtifacts(options) {
+export async function parseCoverageArtifacts(options) {
     const { parserOptions = {} } = options;
     let format = options.format;
     let paths = options.paths || [];
@@ -181,13 +167,8 @@ async function parseCoverageArtifacts(options) {
     return await parser.parse(resolvedPaths, parserOptions);
 }
 // Re-export base parser for extension
-var base_parser_1 = require("./base-parser");
-Object.defineProperty(exports, "BaseCoverageParser", { enumerable: true, get: function () { return base_parser_1.BaseCoverageParser; } });
-var xccov_parser_2 = require("./xccov-parser");
-Object.defineProperty(exports, "XccovParser", { enumerable: true, get: function () { return xccov_parser_2.XccovParser; } });
-var lcov_parser_2 = require("./lcov-parser");
-Object.defineProperty(exports, "LcovParser", { enumerable: true, get: function () { return lcov_parser_2.LcovParser; } });
-var jacoco_parser_2 = require("./jacoco-parser");
-Object.defineProperty(exports, "JacocoParser", { enumerable: true, get: function () { return jacoco_parser_2.JacocoParser; } });
-var llvm_cov_parser_2 = require("./llvm-cov-parser");
-Object.defineProperty(exports, "LlvmCovParser", { enumerable: true, get: function () { return llvm_cov_parser_2.LlvmCovParser; } });
+export { BaseCoverageParser } from './base-parser.js';
+export { XccovParser } from './xccov-parser.js';
+export { LcovParser } from './lcov-parser.js';
+export { JacocoParser } from './jacoco-parser.js';
+export { LlvmCovParser } from './llvm-cov-parser.js';

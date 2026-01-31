@@ -1,6 +1,6 @@
-import { logger, spinner } from './ui';
-import { MCPClient } from './mcp-client';
-import { loadConfig } from './config';
+import { logger, spinner } from './ui.js';
+import { MCPClient } from './mcp-client.js';
+import { loadConfig } from './config.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export interface FlakyTest {

@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import inquirer from 'inquirer';
-import { logger, spinner } from './ui';
+import { logger, spinner } from './ui.js';
 
 export type LLMProvider = 'local' | 'openai' | 'anthropic';
 

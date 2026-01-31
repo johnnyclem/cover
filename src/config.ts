@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { TestingFrameworkConfig } from './types.js';
-import { XcsiftConfig, XcsiftMode, DEFAULT_XCSIFT_CONFIG } from './xcsift-types';
+import { XcsiftConfig, XcsiftMode, DEFAULT_XCSIFT_CONFIG } from './xcsift-types.js';
 
 export interface CoverConfig {
     framework?: string;

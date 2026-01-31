@@ -1,25 +1,20 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getFlakyTestsFromCircleCI = getFlakyTestsFromCircleCI;
-exports.getFlakyTests = getFlakyTests;
-exports.printFlakyTestReport = printFlakyTestReport;
-const ui_1 = require("./ui");
-const mcp_client_1 = require("./mcp-client");
-const config_1 = require("./config");
+import { logger, spinner } from './ui.js';
+import { MCPClient } from './mcp-client.js';
+import { loadConfig } from './config.js';
 // Fetch flaky tests from CircleCI MCP
-async function getFlakyTestsFromCircleCI(projectSlug) {
-    const config = (0, config_1.loadConfig)();
+export async function getFlakyTestsFromCircleCI(projectSlug) {
+    const config = loadConfig();
     const mcpCommand = config?.circleci?.mcpCommand || 'npx';
     const mcpArgs = config?.circleci?.mcpArgs || ['-y', '@circleci/mcp-server'];
-    const client = new mcp_client_1.MCPClient(mcpCommand, mcpArgs);
+    const client = new MCPClient(mcpCommand, mcpArgs);
     const connected = await client.connect();
     if (!connected) {
-        ui_1.logger.warn('Could not connect to CircleCI MCP server.');
+        logger.warn('Could not connect to CircleCI MCP server.');
         return null;
     }
     try {
-        ui_1.logger.info(`Fetching flaky tests for ${projectSlug}...`);
-        const spin = (0, ui_1.spinner)('Querying CircleCI...').start();
+        logger.info(`Fetching flaky tests for ${projectSlug}...`);
+        const spin = spinner('Querying CircleCI...').start();
         // The tool name might be 'find_flaky_tests' or 'circleci-mcp-server_find_flaky_tests'
         let result;
         try {
@@ -35,13 +30,13 @@ async function getFlakyTestsFromCircleCI(projectSlug) {
         }
         spin.stop();
         if (!result || !result.content || result.content.length === 0) {
-            ui_1.logger.warn('No data returned from CircleCI.');
+            logger.warn('No data returned from CircleCI.');
             return null;
         }
         // Parse result content - usually a text block or JSON string
         const contentItem = result.content[0];
         if (contentItem.type !== 'text') {
-            ui_1.logger.warn('Received non-text content from CircleCI MCP.');
+            logger.warn('Received non-text content from CircleCI MCP.');
             return null;
         }
         const content = contentItem.text;
@@ -68,7 +63,7 @@ async function getFlakyTestsFromCircleCI(projectSlug) {
         catch {
             // Not JSON, probably text table.
             // We'll return an empty list but maybe log the text for the user?
-            ui_1.logger.info(content);
+            logger.info(content);
             return {
                 tests: [], // Empty because we printed the output directly
                 source: 'circleci',
@@ -84,7 +79,7 @@ async function getFlakyTestsFromCircleCI(projectSlug) {
         };
     }
     catch (error) {
-        ui_1.logger.error(`Error querying CircleCI: ${error.message}`);
+        logger.error(`Error querying CircleCI: ${error.message}`);
         return null;
     }
     finally {
@@ -92,8 +87,8 @@ async function getFlakyTestsFromCircleCI(projectSlug) {
     }
 }
 // Get flaky tests (tries CircleCI first, falls back to local)
-async function getFlakyTests(options) {
-    const config = (0, config_1.loadConfig)();
+export async function getFlakyTests(options) {
+    const config = loadConfig();
     const slug = options.projectSlug || config?.circleci?.projectSlug;
     // Try CircleCI MCP first
     if (slug) {
@@ -103,7 +98,7 @@ async function getFlakyTests(options) {
         }
     }
     else {
-        ui_1.logger.info('No project slug configured. Add "circleci.projectSlug" to .coverrc or use --project-slug');
+        logger.info('No project slug configured. Add "circleci.projectSlug" to .coverrc or use --project-slug');
     }
     // Fallback to local history (placeholder)
     return {
@@ -113,13 +108,13 @@ async function getFlakyTests(options) {
     };
 }
 // Print flaky test report
-function printFlakyTestReport(report) {
+export function printFlakyTestReport(report) {
     if (report.source === 'circleci' && report.tests.length === 0) {
         // We already printed the text output in getFlakyTestsFromCircleCI
         return;
     }
     if (report.tests.length === 0) {
-        ui_1.logger.success('No flaky tests detected!');
+        logger.success('No flaky tests detected!');
         return;
     }
     console.log('\nFlaky Tests Report:');

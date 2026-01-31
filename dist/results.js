@@ -1,16 +1,13 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.areAllTestsPassing = exports.isBuildSuccessful = exports.getFileErrors = exports.getFileWarnings = exports.analyzeOutput = exports.getBuildFailures = exports.getBuildFailuresLegacy = exports.getTestFailures = void 0;
-const execa_1 = require("execa");
-const ui_1 = require("./ui");
-const xcsift_1 = require("./xcsift");
+import { execa } from 'execa';
+import { logger } from './ui.js';
+import { parseOutput, convertToTestFailures, isXcsiftAvailable, isBuildSuccess, areTestsPassing, getWarningsByFile, getErrorsByFile } from './xcsift.js';
 /**
  * Get test failures from an xcresult bundle.
  * Uses xcresulttool to parse the structured test results.
  */
-const getTestFailures = async (xcresultPath) => {
+export const getTestFailures = async (xcresultPath) => {
     try {
-        const { stdout } = await (0, execa_1.execa)('xcrun', ['xcresulttool', 'get', 'test-results', 'tests', '--path', xcresultPath, '--format', 'json']);
+        const { stdout } = await execa('xcrun', ['xcresulttool', 'get', 'test-results', 'tests', '--path', xcresultPath, '--format', 'json']);
         const json = JSON.parse(stdout);
         const failures = [];
         // Navigate the JSON soup of xcresult for new API
@@ -56,18 +53,17 @@ const getTestFailures = async (xcresultPath) => {
         return failures;
     }
     catch (error) {
-        ui_1.logger.error('Failed to parse test failures from xcresult.');
+        logger.error('Failed to parse test failures from xcresult.');
         return [];
     }
 };
-exports.getTestFailures = getTestFailures;
 /**
  * Legacy synchronous build failure parser using regex.
  * Used as fallback when xcsift is not available.
  *
  * @deprecated Use getBuildFailures() instead which uses xcsift
  */
-const getBuildFailuresLegacy = (log) => {
+export const getBuildFailuresLegacy = (log) => {
     const failures = [];
     const lines = log.split('\n');
     // Regex for standard Swift/ObjC errors: /path/to/file:line:col: error: message
@@ -113,7 +109,6 @@ const getBuildFailuresLegacy = (log) => {
     }
     return failures;
 };
-exports.getBuildFailuresLegacy = getBuildFailuresLegacy;
 /**
  * Parse build failures from xcodebuild/swift output log.
  *
@@ -124,10 +119,10 @@ exports.getBuildFailuresLegacy = getBuildFailuresLegacy;
  * @param options - Optional parsing options
  * @returns Array of test failures representing build errors
  */
-const getBuildFailures = async (log, options) => {
+export const getBuildFailures = async (log, options) => {
     const useXcsift = options?.useXcsift !== false;
     if (useXcsift) {
-        const xcsiftAvailable = await (0, xcsift_1.isXcsiftAvailable)();
+        const xcsiftAvailable = await isXcsiftAvailable();
         if (xcsiftAvailable) {
             try {
                 const xcsiftOptions = {
@@ -135,13 +130,13 @@ const getBuildFailures = async (log, options) => {
                     slowThreshold: 1.0,
                     ...options?.xcsiftOptions
                 };
-                const result = await (0, xcsift_1.parseOutput)(log, xcsiftOptions);
+                const result = await parseOutput(log, xcsiftOptions);
                 // Check if xcsift found any errors
                 const hasErrors = (result.errors?.length ?? 0) > 0;
                 const hasLinkerErrors = (result.linker_errors?.length ?? 0) > 0;
                 const hasTestFailures = (result.failed_tests?.length ?? 0) > 0;
                 if (hasErrors || hasLinkerErrors || hasTestFailures) {
-                    return (0, xcsift_1.convertToTestFailures)(result);
+                    return convertToTestFailures(result);
                 }
                 // xcsift ran but found nothing - might be empty or success
                 // Return empty array (no failures)
@@ -150,14 +145,13 @@ const getBuildFailures = async (log, options) => {
                 }
             }
             catch (error) {
-                ui_1.logger.warn(`xcsift parsing failed, falling back to regex: ${error.message}`);
+                logger.warn(`xcsift parsing failed, falling back to regex: ${error.message}`);
             }
         }
     }
     // Fallback to legacy regex parsing
-    return (0, exports.getBuildFailuresLegacy)(log);
+    return getBuildFailuresLegacy(log);
 };
-exports.getBuildFailures = getBuildFailures;
 /**
  * Parse build/test output with full xcsift analysis.
  * Returns extended information including warnings and slow tests.
@@ -166,12 +160,12 @@ exports.getBuildFailures = getBuildFailures;
  * @param options - Parsing options
  * @returns Extended result with failures, warnings, and slow tests
  */
-const analyzeOutput = async (log, options) => {
-    const xcsiftAvailable = await (0, xcsift_1.isXcsiftAvailable)();
+export const analyzeOutput = async (log, options) => {
+    const xcsiftAvailable = await isXcsiftAvailable();
     if (!xcsiftAvailable) {
         // Fallback to legacy parsing
         return {
-            failures: (0, exports.getBuildFailuresLegacy)(log),
+            failures: getBuildFailuresLegacy(log),
             warnings: 0
         };
     }
@@ -180,8 +174,8 @@ const analyzeOutput = async (log, options) => {
         slowThreshold: 1.0,
         ...options
     };
-    const result = await (0, xcsift_1.parseOutput)(log, xcsiftOptions);
-    const failures = (0, xcsift_1.convertToTestFailures)(result);
+    const result = await parseOutput(log, xcsiftOptions);
+    const failures = convertToTestFailures(result);
     return {
         failures,
         xcsiftResult: result,
@@ -192,42 +186,37 @@ const analyzeOutput = async (log, options) => {
         }))
     };
 };
-exports.analyzeOutput = analyzeOutput;
 /**
  * Get warnings related to a specific file from an xcsift result.
  */
-const getFileWarnings = (result, filePath) => {
-    const warningsByFile = (0, xcsift_1.getWarningsByFile)(result);
+export const getFileWarnings = (result, filePath) => {
+    const warningsByFile = getWarningsByFile(result);
     const fileWarnings = warningsByFile.get(filePath) || [];
     return fileWarnings.map(w => ({
         line: w.line,
         message: w.message
     }));
 };
-exports.getFileWarnings = getFileWarnings;
 /**
  * Get errors related to a specific file from an xcsift result.
  */
-const getFileErrors = (result, filePath) => {
-    const errorsByFile = (0, xcsift_1.getErrorsByFile)(result);
+export const getFileErrors = (result, filePath) => {
+    const errorsByFile = getErrorsByFile(result);
     const fileErrors = errorsByFile.get(filePath) || [];
     return fileErrors.map(e => ({
         line: e.line,
         message: e.message
     }));
 };
-exports.getFileErrors = getFileErrors;
 /**
  * Check if output indicates build success.
  */
-const isBuildSuccessful = (result) => {
-    return (0, xcsift_1.isBuildSuccess)(result);
+export const isBuildSuccessful = (result) => {
+    return isBuildSuccess(result);
 };
-exports.isBuildSuccessful = isBuildSuccessful;
 /**
  * Check if output indicates all tests passed.
  */
-const areAllTestsPassing = (result) => {
-    return (0, xcsift_1.areTestsPassing)(result);
+export const areAllTestsPassing = (result) => {
+    return areTestsPassing(result);
 };
-exports.areAllTestsPassing = areAllTestsPassing;

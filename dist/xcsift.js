@@ -1,4 +1,3 @@
-"use strict";
 /**
  * xcsift integration module for Cover.
  *
@@ -10,42 +9,23 @@
  * - MCP: Uses the xcsift-mcp server via Model Context Protocol
  * - Auto: Tries CLI first, falls back to MCP if available
  */
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.isXcsiftAvailable = isXcsiftAvailable;
-exports.getXcsiftVersion = getXcsiftVersion;
-exports.parseWithXcsiftCLI = parseWithXcsiftCLI;
-exports.parseWithXcsiftMCP = parseWithXcsiftMCP;
-exports.parseOutput = parseOutput;
-exports.convertErrorsToFailures = convertErrorsToFailures;
-exports.convertLinkerErrorsToFailures = convertLinkerErrorsToFailures;
-exports.convertTestFailuresToFailures = convertTestFailuresToFailures;
-exports.convertToTestFailures = convertToTestFailures;
-exports.getWarningsByFile = getWarningsByFile;
-exports.getErrorsByFile = getErrorsByFile;
-exports.getSlowTests = getSlowTests;
-exports.isBuildSuccess = isBuildSuccess;
-exports.areTestsPassing = areTestsPassing;
-exports.getTotalTestCount = getTotalTestCount;
-exports.parseTestTime = parseTestTime;
-exports.getXcsiftConfig = getXcsiftConfig;
-exports.configToParseOptions = configToParseOptions;
-const execa_1 = require("execa");
-const ui_1 = require("./ui");
-const config_1 = require("./config");
-const mcp_client_1 = require("./mcp-client");
-const xcsift_types_1 = require("./xcsift-types");
+import { execa } from 'execa';
+import { logger } from './ui.js';
+import { loadConfig } from './config.js';
+import { MCPClient } from './mcp-client.js';
+import { DEFAULT_XCSIFT_CONFIG } from './xcsift-types.js';
 // Cache xcsift availability check
 let xcsiftAvailableCache = null;
 /**
  * Check if xcsift CLI is available on the system.
  * Result is cached after first check.
  */
-async function isXcsiftAvailable() {
+export async function isXcsiftAvailable() {
     if (xcsiftAvailableCache !== null) {
         return xcsiftAvailableCache;
     }
     try {
-        await (0, execa_1.execa)('which', ['xcsift']);
+        await execa('which', ['xcsift']);
         xcsiftAvailableCache = true;
         return true;
     }
@@ -57,9 +37,9 @@ async function isXcsiftAvailable() {
 /**
  * Get xcsift version string.
  */
-async function getXcsiftVersion() {
+export async function getXcsiftVersion() {
     try {
-        const { stdout } = await (0, execa_1.execa)('xcsift', ['--version']);
+        const { stdout } = await execa('xcsift', ['--version']);
         return stdout.trim();
     }
     catch {
@@ -110,10 +90,10 @@ function buildXcsiftArgs(options) {
  * @param options - Parser options
  * @returns Structured parse result
  */
-async function parseWithXcsiftCLI(rawOutput, options = {}) {
+export async function parseWithXcsiftCLI(rawOutput, options = {}) {
     const args = buildXcsiftArgs(options);
     try {
-        const { stdout } = await (0, execa_1.execa)('xcsift', args, {
+        const { stdout } = await execa('xcsift', args, {
             input: rawOutput,
             timeout: 60000, // 60 second timeout
             reject: false // Don't throw on non-zero exit
@@ -127,7 +107,7 @@ async function parseWithXcsiftCLI(rawOutput, options = {}) {
     }
     catch (error) {
         // Parse error or xcsift failed
-        ui_1.logger.warn(`xcsift CLI parsing failed: ${error.message}`);
+        logger.warn(`xcsift CLI parsing failed: ${error.message}`);
         return createEmptyResult('failed');
     }
 }
@@ -141,12 +121,12 @@ async function parseWithXcsiftCLI(rawOutput, options = {}) {
  * @param options - Parser options
  * @returns Structured parse result, or null if MCP not available
  */
-async function parseWithXcsiftMCP(rawOutput, options = {}) {
-    const config = (0, config_1.loadConfig)();
+export async function parseWithXcsiftMCP(rawOutput, options = {}) {
+    const config = loadConfig();
     const xcsiftConfig = getXcsiftConfig(config);
     const command = xcsiftConfig.mcpCommand || 'xcsift-mcp';
     const args = xcsiftConfig.mcpArgs || [];
-    const client = new mcp_client_1.MCPClient(command, args);
+    const client = new MCPClient(command, args);
     const connected = await client.connect();
     if (!connected) {
         return null;
@@ -168,7 +148,7 @@ async function parseWithXcsiftMCP(rawOutput, options = {}) {
         return JSON.parse(contentItem.text);
     }
     catch (error) {
-        ui_1.logger.warn(`xcsift MCP parsing failed: ${error.message}`);
+        logger.warn(`xcsift MCP parsing failed: ${error.message}`);
         return null;
     }
     finally {
@@ -188,14 +168,14 @@ async function parseWithXcsiftMCP(rawOutput, options = {}) {
  * @param mode - Parser mode selection
  * @returns Structured parse result
  */
-async function parseOutput(rawOutput, options = {}, mode = 'auto') {
+export async function parseOutput(rawOutput, options = {}, mode = 'auto') {
     // MCP-only mode
     if (mode === 'mcp') {
         const mcpResult = await parseWithXcsiftMCP(rawOutput, options);
         if (mcpResult) {
             return mcpResult;
         }
-        ui_1.logger.warn('xcsift-mcp not available');
+        logger.warn('xcsift-mcp not available');
         return createEmptyResult('failed');
     }
     // CLI or auto mode - try CLI first
@@ -204,16 +184,16 @@ async function parseOutput(rawOutput, options = {}, mode = 'auto') {
             return parseWithXcsiftCLI(rawOutput, options);
         }
         if (mode === 'cli') {
-            ui_1.logger.warn('xcsift CLI not found. Install with: brew install xcsift');
+            logger.warn('xcsift CLI not found. Install with: brew install xcsift');
             return createEmptyResult('failed');
         }
         // Auto mode - CLI not available, try MCP
-        ui_1.logger.info('xcsift CLI not found, trying MCP fallback...');
+        logger.info('xcsift CLI not found, trying MCP fallback...');
         const mcpResult = await parseWithXcsiftMCP(rawOutput, options);
         if (mcpResult) {
             return mcpResult;
         }
-        ui_1.logger.warn('Neither xcsift CLI nor MCP available. Install xcsift with: brew install xcsift');
+        logger.warn('Neither xcsift CLI nor MCP available. Install xcsift with: brew install xcsift');
     }
     return createEmptyResult('failed');
 }
@@ -236,7 +216,7 @@ function createEmptyResult(status) {
  * Convert xcsift errors to Cover's TestFailure format.
  * Used for build failures (compiler errors).
  */
-function convertErrorsToFailures(errors) {
+export function convertErrorsToFailures(errors) {
     return errors.map(error => ({
         testCaseName: 'Build Failure',
         message: error.message,
@@ -247,7 +227,7 @@ function convertErrorsToFailures(errors) {
 /**
  * Convert xcsift linker errors to Cover's TestFailure format.
  */
-function convertLinkerErrorsToFailures(linkerErrors) {
+export function convertLinkerErrorsToFailures(linkerErrors) {
     return linkerErrors.map(error => ({
         testCaseName: 'Linker Failure',
         message: error.message,
@@ -258,7 +238,7 @@ function convertLinkerErrorsToFailures(linkerErrors) {
 /**
  * Convert xcsift test failures to Cover's TestFailure format.
  */
-function convertTestFailuresToFailures(testFailures) {
+export function convertTestFailuresToFailures(testFailures) {
     return testFailures.map(failure => ({
         testCaseName: failure.test,
         message: failure.message,
@@ -270,7 +250,7 @@ function convertTestFailuresToFailures(testFailures) {
  * Convert all failures from an xcsift result to Cover's TestFailure format.
  * Combines compiler errors, linker errors, and test failures.
  */
-function convertToTestFailures(result) {
+export function convertToTestFailures(result) {
     const failures = [];
     // Add compiler errors
     if (result.errors && result.errors.length > 0) {
@@ -290,7 +270,7 @@ function convertToTestFailures(result) {
 /**
  * Get warnings grouped by file.
  */
-function getWarningsByFile(result) {
+export function getWarningsByFile(result) {
     const byFile = new Map();
     for (const warning of result.warnings || []) {
         const existing = byFile.get(warning.file) || [];
@@ -302,7 +282,7 @@ function getWarningsByFile(result) {
 /**
  * Get errors grouped by file.
  */
-function getErrorsByFile(result) {
+export function getErrorsByFile(result) {
     const byFile = new Map();
     for (const error of result.errors || []) {
         const existing = byFile.get(error.file) || [];
@@ -314,13 +294,13 @@ function getErrorsByFile(result) {
 /**
  * Get slow tests from the result.
  */
-function getSlowTests(result) {
+export function getSlowTests(result) {
     return result.slow_tests || [];
 }
 /**
  * Check if the build succeeded (no errors, no linker errors).
  */
-function isBuildSuccess(result) {
+export function isBuildSuccess(result) {
     return result.status === 'success' &&
         result.summary.errors === 0 &&
         result.summary.linker_errors === 0;
@@ -328,13 +308,13 @@ function isBuildSuccess(result) {
 /**
  * Check if all tests passed.
  */
-function areTestsPassing(result) {
+export function areTestsPassing(result) {
     return result.summary.failed_tests === 0;
 }
 /**
  * Get total test count (passed + failed).
  */
-function getTotalTestCount(result) {
+export function getTotalTestCount(result) {
     const passed = result.summary.passed_tests || 0;
     const failed = result.summary.failed_tests || 0;
     return passed + failed;
@@ -343,7 +323,7 @@ function getTotalTestCount(result) {
  * Parse test time string to seconds.
  * Handles formats like "2.503s", "1m 30s", etc.
  */
-function parseTestTime(timeString) {
+export function parseTestTime(timeString) {
     if (!timeString)
         return null;
     // Simple seconds format: "2.503s"
@@ -362,25 +342,25 @@ function parseTestTime(timeString) {
 /**
  * Get xcsift configuration from Cover config or use defaults.
  */
-function getXcsiftConfig(coverConfig) {
+export function getXcsiftConfig(coverConfig) {
     const xcsiftConfig = coverConfig?.xcsift;
     if (!xcsiftConfig) {
-        return xcsift_types_1.DEFAULT_XCSIFT_CONFIG;
+        return DEFAULT_XCSIFT_CONFIG;
     }
     return {
-        enabled: xcsiftConfig.enabled ?? xcsift_types_1.DEFAULT_XCSIFT_CONFIG.enabled,
-        mode: xcsiftConfig.mode ?? xcsift_types_1.DEFAULT_XCSIFT_CONFIG.mode,
-        slowThreshold: xcsiftConfig.slowThreshold ?? xcsift_types_1.DEFAULT_XCSIFT_CONFIG.slowThreshold,
-        includeWarnings: xcsiftConfig.includeWarnings ?? xcsift_types_1.DEFAULT_XCSIFT_CONFIG.includeWarnings,
-        includeBuildInfo: xcsiftConfig.includeBuildInfo ?? xcsift_types_1.DEFAULT_XCSIFT_CONFIG.includeBuildInfo,
-        mcpCommand: xcsiftConfig.mcpCommand ?? xcsift_types_1.DEFAULT_XCSIFT_CONFIG.mcpCommand,
-        mcpArgs: xcsiftConfig.mcpArgs ?? xcsift_types_1.DEFAULT_XCSIFT_CONFIG.mcpArgs
+        enabled: xcsiftConfig.enabled ?? DEFAULT_XCSIFT_CONFIG.enabled,
+        mode: xcsiftConfig.mode ?? DEFAULT_XCSIFT_CONFIG.mode,
+        slowThreshold: xcsiftConfig.slowThreshold ?? DEFAULT_XCSIFT_CONFIG.slowThreshold,
+        includeWarnings: xcsiftConfig.includeWarnings ?? DEFAULT_XCSIFT_CONFIG.includeWarnings,
+        includeBuildInfo: xcsiftConfig.includeBuildInfo ?? DEFAULT_XCSIFT_CONFIG.includeBuildInfo,
+        mcpCommand: xcsiftConfig.mcpCommand ?? DEFAULT_XCSIFT_CONFIG.mcpCommand,
+        mcpArgs: xcsiftConfig.mcpArgs ?? DEFAULT_XCSIFT_CONFIG.mcpArgs
     };
 }
 /**
  * Convert xcsift config to parse options.
  */
-function configToParseOptions(config) {
+export function configToParseOptions(config) {
     return {
         includeWarnings: config.includeWarnings,
         includeBuildInfo: config.includeBuildInfo,

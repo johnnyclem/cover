@@ -1,12 +1,5 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.calculatePRCoverage = calculatePRCoverage;
-exports.shouldExcludeFromPRCoverage = shouldExcludeFromPRCoverage;
-const git_1 = require("./git");
-const path_1 = __importDefault(require("path"));
+import { expandHunksToLines } from './git.js';
+import path from 'path';
 /**
  * Calculate PR coverage by intersecting diff lines with coverage data.
  *
@@ -19,7 +12,7 @@ const path_1 = __importDefault(require("path"));
  * Non-executable lines (comments, blank lines) are counted as "covered"
  * by default, so they don't negatively impact the coverage percentage.
  */
-async function calculatePRCoverage(diffResult, coverageData, options = {}) {
+export async function calculatePRCoverage(diffResult, coverageData, options = {}) {
     const { verbose = false, treatNonExecutableAsCovered = true } = options;
     const files = [];
     let totalNew = 0;
@@ -27,7 +20,7 @@ async function calculatePRCoverage(diffResult, coverageData, options = {}) {
     let totalUncovered = 0;
     for (const fileDiff of diffResult.files) {
         // 1. Expand hunks to individual line numbers
-        const changedLines = (0, git_1.expandHunksToLines)(fileDiff.addedLines);
+        const changedLines = expandHunksToLines(fileDiff.addedLines);
         if (verbose) {
             console.log(`Processing ${fileDiff.path}: ${changedLines.length} changed lines`);
         }
@@ -145,8 +138,8 @@ function findCoverageForFile(diffPath, coverageData, verbose) {
         }
         return coverageData.get(diffPath);
     }
-    const diffFilename = path_1.default.basename(diffPath);
-    const diffParent = path_1.default.basename(path_1.default.dirname(diffPath));
+    const diffFilename = path.basename(diffPath);
+    const diffParent = path.basename(path.dirname(diffPath));
     const normalizedDiff = normalizePath(diffPath);
     let bestMatch = null;
     let bestScore = 0;
@@ -160,8 +153,8 @@ function findCoverageForFile(diffPath, coverageData, verbose) {
             return coverage;
         }
         // 3. Score by filename + parent match
-        const coverageFilename = path_1.default.basename(coveragePath);
-        const coverageParent = path_1.default.basename(path_1.default.dirname(coveragePath));
+        const coverageFilename = path.basename(coveragePath);
+        const coverageParent = path.basename(path.dirname(coveragePath));
         if (coverageFilename === diffFilename) {
             let score = 1;
             if (coverageParent === diffParent) {
@@ -202,7 +195,7 @@ function normalizePath(filePath) {
  * Check if a file should be excluded from PR coverage analysis.
  * (Test files, generated files, etc.)
  */
-function shouldExcludeFromPRCoverage(filePath) {
+export function shouldExcludeFromPRCoverage(filePath) {
     const excludePatterns = [
         /\.generated\./i,
         /\.pb\.swift$/i, // Protocol buffer generated files

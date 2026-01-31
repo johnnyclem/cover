@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import Table from 'cli-table3';
-import { CoveredFile } from './types';
-import { XcsiftResult, XcsiftError, XcsiftWarning } from './xcsift-types';
+import { CoveredFile } from './types.js';
+import { XcsiftResult, XcsiftError, XcsiftWarning } from './xcsift-types.js';
 
 export const logger = {
   info: (msg: string) => console.log(chalk.blue(msg)),

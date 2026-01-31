@@ -1,8 +1,8 @@
 import { glob } from 'glob';
 import path from 'path';
 import fs from 'fs';
-import { logger, spinner } from './ui';
-import { getAnalyzerClient } from './llm';
+import { logger, spinner } from './ui.js';
+import { getAnalyzerClient } from './llm.js';
 
 interface FilePlan {
     sourcePath: string;

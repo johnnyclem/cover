@@ -1,15 +1,9 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.XccovParser = void 0;
-const execa_1 = require("execa");
-const base_parser_1 = require("./base-parser");
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
-const os_1 = __importDefault(require("os"));
-const crypto_1 = __importDefault(require("crypto"));
+import { execa } from 'execa';
+import { BaseCoverageParser } from './base-parser.js';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import crypto from 'crypto';
 /**
  * Parser for Xcode's xccov coverage format (.xcresult bundles).
  *
@@ -17,10 +11,10 @@ const crypto_1 = __importDefault(require("crypto"));
  * - Fast mode: File-level coverage only (default, fast)
  * - Full mode: Line-level coverage (slower, more accurate)
  */
-class XccovParser extends base_parser_1.BaseCoverageParser {
+export class XccovParser extends BaseCoverageParser {
     format = 'xccov';
     fileExtensions = ['.xcresult'];
-    cacheDir = path_1.default.join(os_1.default.homedir(), '.cover', 'xccov-cache');
+    cacheDir = path.join(os.homedir(), '.cover', 'xccov-cache');
     async parse(artifactPaths, options = {}) {
         const result = new Map();
         const { fast = true, useCache = true, verbose = false } = options;
@@ -69,7 +63,7 @@ class XccovParser extends base_parser_1.BaseCoverageParser {
      */
     async getReport(xcresultPath) {
         try {
-            const { stdout } = await (0, execa_1.execa)('xcrun', [
+            const { stdout } = await execa('xcrun', [
                 'xccov', 'view', '--report', '--json', xcresultPath
             ]);
             return JSON.parse(stdout);
@@ -99,7 +93,7 @@ class XccovParser extends base_parser_1.BaseCoverageParser {
                 console.log(`Fetching line coverage for ${filePath}`);
             }
             // Get line-level coverage using xccov
-            const { stdout } = await (0, execa_1.execa)('xcrun', [
+            const { stdout } = await execa('xcrun', [
                 'xccov', 'view', '--file', filePath, '--json', xcresultPath
             ]);
             const lineData = JSON.parse(stdout);
@@ -154,15 +148,15 @@ class XccovParser extends base_parser_1.BaseCoverageParser {
      * Generate a cache key for an xcresult + file combination.
      */
     getCacheKey(xcresultPath, filePath) {
-        const stat = fs_1.default.statSync(xcresultPath);
+        const stat = fs.statSync(xcresultPath);
         const content = `${xcresultPath}:${stat.mtimeMs}:${filePath}`;
-        return crypto_1.default.createHash('sha256').update(content).digest('hex').substring(0, 16);
+        return crypto.createHash('sha256').update(content).digest('hex').substring(0, 16);
     }
     /**
      * Get cache file path for a given key.
      */
     getCachePath(key) {
-        return path_1.default.join(this.cacheDir, `${key}.json`);
+        return path.join(this.cacheDir, `${key}.json`);
     }
     /**
      * Load coverage data from cache.
@@ -171,10 +165,10 @@ class XccovParser extends base_parser_1.BaseCoverageParser {
         try {
             const key = this.getCacheKey(xcresultPath, filePath);
             const cachePath = this.getCachePath(key);
-            if (!fs_1.default.existsSync(cachePath)) {
+            if (!fs.existsSync(cachePath)) {
                 return null;
             }
-            const data = JSON.parse(fs_1.default.readFileSync(cachePath, 'utf-8'));
+            const data = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
             // Reconstruct Sets from arrays
             return {
                 filePath: data.filePath,
@@ -193,8 +187,8 @@ class XccovParser extends base_parser_1.BaseCoverageParser {
     async saveToCache(xcresultPath, filePath, coverage) {
         try {
             // Ensure cache directory exists
-            if (!fs_1.default.existsSync(this.cacheDir)) {
-                fs_1.default.mkdirSync(this.cacheDir, { recursive: true });
+            if (!fs.existsSync(this.cacheDir)) {
+                fs.mkdirSync(this.cacheDir, { recursive: true });
             }
             const key = this.getCacheKey(xcresultPath, filePath);
             const cachePath = this.getCachePath(key);
@@ -205,7 +199,7 @@ class XccovParser extends base_parser_1.BaseCoverageParser {
                 uncoveredLines: [...coverage.uncoveredLines],
                 executableLines: [...coverage.executableLines],
             };
-            fs_1.default.writeFileSync(cachePath, JSON.stringify(data));
+            fs.writeFileSync(cachePath, JSON.stringify(data));
         }
         catch {
             // Silently fail cache writes
@@ -215,9 +209,8 @@ class XccovParser extends base_parser_1.BaseCoverageParser {
      * Clear the xccov cache.
      */
     async clearCache() {
-        if (fs_1.default.existsSync(this.cacheDir)) {
-            fs_1.default.rmSync(this.cacheDir, { recursive: true });
+        if (fs.existsSync(this.cacheDir)) {
+            fs.rmSync(this.cacheDir, { recursive: true });
         }
     }
 }
-exports.XccovParser = XccovParser;

@@ -1,6 +1,6 @@
 import { execa } from 'execa';
-import { logger } from './ui';
-import { DiffHunk, FileDiff, PRDiffResult } from './types';
+import { logger } from './ui.js';
+import { DiffHunk, FileDiff, PRDiffResult } from './types.js';
 
 /**
  * Get list of changed file names between base branch and HEAD.

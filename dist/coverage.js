@@ -1,10 +1,4 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.processCoverageLegacy = exports.processCoverage = exports.isTestUtilFile = exports.isTestFile = void 0;
-const path_1 = __importDefault(require("path"));
+import path from 'path';
 // Default patterns to identify test files
 const DEFAULT_TEST_FILE_PATTERNS = [
     /Tests?\.swift$/i,
@@ -37,19 +31,17 @@ const matchesPatterns = (filePath, patterns) => {
 /**
  * Determine if a file is a test file (not subject to coverage)
  */
-const isTestFile = (filePath, config) => {
+export const isTestFile = (filePath, config) => {
     const patterns = config?.xcode?.testFilePatterns?.map(p => new RegExp(p, 'i')) || DEFAULT_TEST_FILE_PATTERNS;
     return matchesPatterns(filePath, patterns);
 };
-exports.isTestFile = isTestFile;
 /**
  * Determine if a file is a test utility file (mocks, stubs, helpers)
  */
-const isTestUtilFile = (filePath, config) => {
+export const isTestUtilFile = (filePath, config) => {
     const patterns = config?.xcode?.testUtilPatterns?.map(p => new RegExp(p, 'i')) || DEFAULT_TEST_UTIL_PATTERNS;
     return matchesPatterns(filePath, patterns);
 };
-exports.isTestUtilFile = isTestUtilFile;
 /**
  * Normalize a path for comparison by extracting meaningful components.
  * Handles differences between absolute xccov paths and relative git paths.
@@ -66,13 +58,13 @@ const normalizePath = (filePath) => {
  * Extract just the filename from a path
  */
 const getFilename = (filePath) => {
-    return path_1.default.basename(filePath);
+    return path.basename(filePath);
 };
 /**
  * Get the parent directory name
  */
 const getParentDir = (filePath) => {
-    return path_1.default.basename(path_1.default.dirname(filePath));
+    return path.basename(path.dirname(filePath));
 };
 /**
  * Calculate similarity between two paths (0-1 score)
@@ -135,11 +127,11 @@ const findBestMatch = (changedFile, allCoveredFiles, verbose = false) => {
  */
 const determineNotFoundReason = (changedFile, candidates, config) => {
     // Check if it's a test file
-    if ((0, exports.isTestFile)(changedFile, config)) {
+    if (isTestFile(changedFile, config)) {
         return { reason: 'test_file', details: 'Test files are not subject to code coverage' };
     }
     // Check if it's a test utility file
-    if ((0, exports.isTestUtilFile)(changedFile, config)) {
+    if (isTestUtilFile(changedFile, config)) {
         return {
             reason: 'test_util_file',
             details: 'Test utility files (mocks, stubs, helpers) are typically not in coverage data'
@@ -165,7 +157,7 @@ const determineNotFoundReason = (changedFile, candidates, config) => {
  * Process Xcode coverage data and match against changed files.
  * Returns categorized results with detailed information about each file.
  */
-const processCoverage = (coverageJson, changedFiles, options = {}) => {
+export const processCoverage = (coverageJson, changedFiles, options = {}) => {
     const { verbose = false, config } = options;
     const coveredFiles = [];
     const notFoundFiles = [];
@@ -183,7 +175,7 @@ const processCoverage = (coverageJson, changedFiles, options = {}) => {
     // Process each changed file
     for (const changedFile of changedFiles) {
         // First, check if this is a test file (flag separately)
-        if ((0, exports.isTestFile)(changedFile, config)) {
+        if (isTestFile(changedFile, config)) {
             testFilesSkipped.push(changedFile);
             if (verbose) {
                 matchAttempts.push({
@@ -239,7 +231,6 @@ const processCoverage = (coverageJson, changedFiles, options = {}) => {
     }
     return result;
 };
-exports.processCoverage = processCoverage;
 /**
  * Extract uncovered line numbers from xccov file data
  */
@@ -261,8 +252,8 @@ const extractUncoveredFunctions = (fileData) => {
  * Returns just the CoveredFile[] array with 0% for unmatched files.
  * @deprecated Use processCoverage() instead for full categorization
  */
-const processCoverageLegacy = (coverageJson, changedFiles) => {
-    const result = (0, exports.processCoverage)(coverageJson, changedFiles);
+export const processCoverageLegacy = (coverageJson, changedFiles) => {
+    const result = processCoverage(coverageJson, changedFiles);
     // Combine covered files with not-found files (marked as 0%)
     const allFiles = [...result.coveredFiles];
     for (const notFound of result.notFoundFiles) {
@@ -276,4 +267,3 @@ const processCoverageLegacy = (coverageJson, changedFiles) => {
     }
     return allFiles;
 };
-exports.processCoverageLegacy = processCoverageLegacy;

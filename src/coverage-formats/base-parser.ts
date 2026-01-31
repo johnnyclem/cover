@@ -1,4 +1,4 @@
-import { CoverageFormat, LineCoverageData } from '../types';
+import { CoverageFormat, LineCoverageData } from '../types.js';
 import { glob } from 'glob';
 
 /**

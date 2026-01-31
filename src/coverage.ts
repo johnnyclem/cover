@@ -1,5 +1,5 @@
-import { CoveredFile, ProcessedCoverageResult, NotFoundFile, NotFoundReason, CoverageDebugInfo, MatchAttempt } from './types';
-import { CoverConfig } from './config';
+import { CoveredFile, ProcessedCoverageResult, NotFoundFile, NotFoundReason, CoverageDebugInfo, MatchAttempt } from './types.js';
+import { CoverConfig } from './config.js';
 import path from 'path';
 
 // Default patterns to identify test files

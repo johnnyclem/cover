@@ -3,7 +3,7 @@ import { glob } from 'glob';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { logger, spinner } from './ui';
+import { logger, spinner } from './ui.js';
 import inquirer from 'inquirer';
 
 // Cache configuration

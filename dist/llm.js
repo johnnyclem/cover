@@ -1,12 +1,6 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getFixerClient = exports.getAnalyzerClient = exports.setupLLM = void 0;
-const openai_1 = __importDefault(require("openai"));
-const inquirer_1 = __importDefault(require("inquirer"));
-const ui_1 = require("./ui");
+import OpenAI from 'openai';
+import inquirer from 'inquirer';
+import { logger } from './ui.js';
 // Default to a common local setup (e.g., Ollama or LM Studio)
 let localConfig = {
     provider: 'local',
@@ -16,16 +10,16 @@ let localConfig = {
 };
 let activeConfig = null;
 let remoteConfig = null;
-const setupLLM = async () => {
+export const setupLLM = async () => {
     // 1. Check if local server is running
     const isLocalRunning = await checkLocalConnection(localConfig.baseUrl);
     if (isLocalRunning) {
-        ui_1.logger.info('Local LLM detected at ' + localConfig.baseUrl);
+        logger.info('Local LLM detected at ' + localConfig.baseUrl);
         activeConfig = localConfig;
         return;
     }
-    ui_1.logger.warn('No local LLM detected at default port (1234).');
-    const answer = await inquirer_1.default.prompt([{
+    logger.warn('No local LLM detected at default port (1234).');
+    const answer = await inquirer.prompt([{
             type: 'list',
             name: 'choice',
             message: 'How would you like to run the AI agent?',
@@ -36,7 +30,7 @@ const setupLLM = async () => {
             ]
         }]);
     if (answer.choice === 'local_custom') {
-        const custom = await inquirer_1.default.prompt([
+        const custom = await inquirer.prompt([
             { type: 'input', name: 'url', message: 'Enter Base URL:', default: 'http://localhost:11434/v1' },
             { type: 'input', name: 'model', message: 'Enter Model Name:', default: 'llama3' }
         ]);
@@ -45,17 +39,17 @@ const setupLLM = async () => {
         activeConfig = localConfig;
     }
     else if (answer.choice === 'openai') {
-        const confirmation = await inquirer_1.default.prompt([{
+        const confirmation = await inquirer.prompt([{
                 type: 'confirm',
                 name: 'agree',
                 message: '⚠️  SECURITY WARNING: This will send code snippets and build logs to OpenAI. Do you agree?',
                 default: false
             }]);
         if (!confirmation.agree) {
-            ui_1.logger.error('Permission denied. Agent disabled.');
+            logger.error('Permission denied. Agent disabled.');
             return;
         }
-        const creds = await inquirer_1.default.prompt([{
+        const creds = await inquirer.prompt([{
                 type: 'password',
                 name: 'key',
                 message: 'Enter OpenAI API Key:'
@@ -68,7 +62,6 @@ const setupLLM = async () => {
         activeConfig = remoteConfig;
     }
 };
-exports.setupLLM = setupLLM;
 const checkLocalConnection = async (url) => {
     try {
         const response = await fetch(`${url}/models`);
@@ -78,30 +71,28 @@ const checkLocalConnection = async (url) => {
         return false;
     }
 };
-const getAnalyzerClient = () => {
+export const getAnalyzerClient = () => {
     if (!activeConfig)
         throw new Error('LLM not configured.');
     // Always use the active config (which is local if available, or remote if user opted-in)
     return {
-        client: new openai_1.default({
+        client: new OpenAI({
             baseURL: activeConfig.baseUrl,
             apiKey: activeConfig.apiKey
         }),
         model: activeConfig.model
     };
 };
-exports.getAnalyzerClient = getAnalyzerClient;
-const getFixerClient = () => {
+export const getFixerClient = () => {
     if (!activeConfig)
         throw new Error('LLM not configured.');
     // For now, simpler to just use the same active config for both
     // unless we want to split them later.
     return {
-        client: new openai_1.default({
+        client: new OpenAI({
             baseURL: activeConfig.baseUrl,
             apiKey: activeConfig.apiKey
         }),
         model: activeConfig.model
     };
 };
-exports.getFixerClient = getFixerClient;

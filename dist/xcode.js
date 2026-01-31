@@ -1,24 +1,18 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getCoverageData = exports.runXcodeTests = void 0;
-const execa_1 = require("execa");
-const glob_1 = require("glob");
-const fs_1 = __importDefault(require("fs"));
-const os_1 = __importDefault(require("os"));
-const path_1 = __importDefault(require("path"));
-const ui_1 = require("./ui");
-const inquirer_1 = __importDefault(require("inquirer"));
+import { execa } from 'execa';
+import { glob } from 'glob';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { logger, spinner } from './ui.js';
+import inquirer from 'inquirer';
 // Cache configuration
-const CACHE_DIR = path_1.default.join(os_1.default.homedir(), '.cover');
-const DESTINATIONS_CACHE_FILE = path_1.default.join(CACHE_DIR, 'xcode-destinations-cache.json');
-const TEST_PLANS_CACHE_FILE = path_1.default.join(CACHE_DIR, 'xcode-test-plans-cache.json');
+const CACHE_DIR = path.join(os.homedir(), '.cover');
+const DESTINATIONS_CACHE_FILE = path.join(CACHE_DIR, 'xcode-destinations-cache.json');
+const TEST_PLANS_CACHE_FILE = path.join(CACHE_DIR, 'xcode-test-plans-cache.json');
 const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 const createCacheDir = () => {
-    if (!fs_1.default.existsSync(CACHE_DIR)) {
-        fs_1.default.mkdirSync(CACHE_DIR, { recursive: true });
+    if (!fs.existsSync(CACHE_DIR)) {
+        fs.mkdirSync(CACHE_DIR, { recursive: true });
     }
 };
 const getBaseArgsHash = (baseArgs) => {
@@ -26,10 +20,10 @@ const getBaseArgsHash = (baseArgs) => {
 };
 const loadDestinationsFromCache = async (scheme, baseArgs) => {
     try {
-        if (!fs_1.default.existsSync(DESTINATIONS_CACHE_FILE)) {
+        if (!fs.existsSync(DESTINATIONS_CACHE_FILE)) {
             return null;
         }
-        const cacheData = JSON.parse(fs_1.default.readFileSync(DESTINATIONS_CACHE_FILE, 'utf-8'));
+        const cacheData = JSON.parse(fs.readFileSync(DESTINATIONS_CACHE_FILE, 'utf-8'));
         const baseArgsHash = getBaseArgsHash(baseArgs);
         const now = Date.now();
         // Check if cache is valid (same scheme, same base args, and not expired)
@@ -53,7 +47,7 @@ const saveDestinationsToCache = (scheme, baseArgs, destinations) => {
             scheme,
             baseArgsHash: getBaseArgsHash(baseArgs)
         };
-        fs_1.default.writeFileSync(DESTINATIONS_CACHE_FILE, JSON.stringify(cacheData, null, 2));
+        fs.writeFileSync(DESTINATIONS_CACHE_FILE, JSON.stringify(cacheData, null, 2));
     }
     catch (error) {
         // Silently fail to save cache
@@ -61,10 +55,10 @@ const saveDestinationsToCache = (scheme, baseArgs, destinations) => {
 };
 const loadTestPlansFromCache = async (scheme, baseArgs) => {
     try {
-        if (!fs_1.default.existsSync(TEST_PLANS_CACHE_FILE)) {
+        if (!fs.existsSync(TEST_PLANS_CACHE_FILE)) {
             return null;
         }
-        const cacheData = JSON.parse(fs_1.default.readFileSync(TEST_PLANS_CACHE_FILE, 'utf-8'));
+        const cacheData = JSON.parse(fs.readFileSync(TEST_PLANS_CACHE_FILE, 'utf-8'));
         const baseArgsHash = getBaseArgsHash(baseArgs);
         const now = Date.now();
         // Check if cache is valid (same scheme, same base args, and not expired)
@@ -88,7 +82,7 @@ const saveTestPlansToCache = (scheme, baseArgs, testPlans) => {
             scheme,
             baseArgsHash: getBaseArgsHash(baseArgs)
         };
-        fs_1.default.writeFileSync(TEST_PLANS_CACHE_FILE, JSON.stringify(cacheData, null, 2));
+        fs.writeFileSync(TEST_PLANS_CACHE_FILE, JSON.stringify(cacheData, null, 2));
     }
     catch (error) {
         // Silently fail to save cache
@@ -104,29 +98,29 @@ const detectBaseArgs = async (projectPath, workspacePath) => {
     }
     else {
         // Auto-discovery logic...
-        const workspaces = await (0, glob_1.glob)('*.xcworkspace');
+        const workspaces = await glob('*.xcworkspace');
         if (workspaces.length > 0) {
             baseArgs.push('-workspace', workspaces[0]);
         }
         else {
-            const deepWorkspaces = await (0, glob_1.glob)('**/*.xcworkspace', { ignore: '**/node_modules/**' });
+            const deepWorkspaces = await glob('**/*.xcworkspace', { ignore: '**/node_modules/**' });
             if (deepWorkspaces.length > 0) {
                 if (deepWorkspaces.length > 1) {
-                    ui_1.logger.warn(`Found multiple workspaces: ${deepWorkspaces.join(', ')}. Using ${deepWorkspaces[0]}`);
+                    logger.warn(`Found multiple workspaces: ${deepWorkspaces.join(', ')}. Using ${deepWorkspaces[0]}`);
                 }
                 baseArgs.push('-workspace', deepWorkspaces[0]);
-                ui_1.logger.info(`Auto-detected workspace: ${deepWorkspaces[0]}`);
+                logger.info(`Auto-detected workspace: ${deepWorkspaces[0]}`);
             }
             else {
-                const projects = await (0, glob_1.glob)('*.xcodeproj');
+                const projects = await glob('*.xcodeproj');
                 if (projects.length > 0) {
                     baseArgs.push('-project', projects[0]);
                 }
                 else {
-                    const deepProjects = await (0, glob_1.glob)('**/*.xcodeproj', { ignore: '**/node_modules/**' });
+                    const deepProjects = await glob('**/*.xcodeproj', { ignore: '**/node_modules/**' });
                     if (deepProjects.length > 0) {
                         baseArgs.push('-project', deepProjects[0]);
-                        ui_1.logger.info(`Auto-detected project: ${deepProjects[0]}`);
+                        logger.info(`Auto-detected project: ${deepProjects[0]}`);
                     }
                     else {
                         throw new Error('No Xcode project or workspace found (searched recursively).');
@@ -142,14 +136,14 @@ const getDestinations = async (scheme, baseArgs, forceRefresh = false) => {
     if (!forceRefresh) {
         const cachedDestinations = await loadDestinationsFromCache(scheme, baseArgs);
         if (cachedDestinations) {
-            ui_1.logger.info('Using cached destinations.');
+            logger.info('Using cached destinations.');
             return cachedDestinations;
         }
     }
     try {
-        ui_1.logger.info('Fetching available destinations...');
+        logger.info('Fetching available destinations...');
         const destArgs = [...baseArgs, '-scheme', scheme, '-showdestinations'];
-        const { stdout } = await (0, execa_1.execa)('xcodebuild', destArgs);
+        const { stdout } = await execa('xcodebuild', destArgs);
         const lines = stdout.split('\n');
         const choices = [];
         const seenNames = new Set();
@@ -176,7 +170,7 @@ const getDestinations = async (scheme, baseArgs, forceRefresh = false) => {
         return choices;
     }
     catch (error) {
-        ui_1.logger.warn('Failed to fetch destinations.');
+        logger.warn('Failed to fetch destinations.');
         return [];
     }
 };
@@ -185,14 +179,14 @@ const getTestPlans = async (scheme, baseArgs, forceRefresh = false) => {
     if (!forceRefresh) {
         const cachedTestPlans = await loadTestPlansFromCache(scheme, baseArgs);
         if (cachedTestPlans) {
-            ui_1.logger.info('Using cached test plans.');
+            logger.info('Using cached test plans.');
             return cachedTestPlans;
         }
     }
     try {
-        ui_1.logger.info('Discovering available test plans...');
+        logger.info('Discovering available test plans...');
         const testPlanArgs = [...baseArgs, '-scheme', scheme, '-showTestPlans'];
-        const { stdout } = await (0, execa_1.execa)('xcodebuild', testPlanArgs);
+        const { stdout } = await execa('xcodebuild', testPlanArgs);
         const lines = stdout.split('\n');
         const testPlans = [];
         const seenPlans = new Set();
@@ -218,25 +212,25 @@ const getTestPlans = async (scheme, baseArgs, forceRefresh = false) => {
     catch (error) {
         // -showTestPlans might not be supported in all Xcode versions
         // or there might be no test plans defined
-        ui_1.logger.info('Could not discover test plans (this is normal if none are defined).');
+        logger.info('Could not discover test plans (this is normal if none are defined).');
         return [];
     }
 };
-const runXcodeTests = async (scheme, destination, projectPath, workspacePath, refreshDestinations = false, testPlan) => {
-    ui_1.logger.step(`Preparing tests for scheme: ${scheme}`);
+export const runXcodeTests = async (scheme, destination, projectPath, workspacePath, refreshDestinations = false, testPlan) => {
+    logger.step(`Preparing tests for scheme: ${scheme}`);
     // Create a temporary derived data path to easily locate logs/results
-    const derivedDataPath = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'cover-derived-data-'));
-    const resultBundlePath = path_1.default.join(derivedDataPath, 'TestResult.xcresult');
+    const derivedDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cover-derived-data-'));
+    const resultBundlePath = path.join(derivedDataPath, 'TestResult.xcresult');
     const baseArgs = await detectBaseArgs(projectPath, workspacePath);
     // Test Plan Handling
     let selectedTestPlan = testPlan;
     if (!selectedTestPlan) {
-        const testPlanSpinner = (0, ui_1.spinner)('Checking available test plans...');
+        const testPlanSpinner = spinner('Checking available test plans...');
         testPlanSpinner.start();
         const availableTestPlans = await getTestPlans(scheme, baseArgs, false);
         testPlanSpinner.stop();
         if (availableTestPlans.length > 0) {
-            const answer = await inquirer_1.default.prompt([{
+            const answer = await inquirer.prompt([{
                     type: 'input',
                     name: 'testPlan',
                     message: 'Enter test plan name (press Enter to skip):',
@@ -257,7 +251,7 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
     // Destination Handling
     let selectedDestination = destination;
     if (!selectedDestination) {
-        const testSpinner = (0, ui_1.spinner)('Checking available destinations...');
+        const testSpinner = spinner('Checking available destinations...');
         testSpinner.start();
         const choices = await getDestinations(scheme, baseArgs, refreshDestinations);
         testSpinner.stop();
@@ -266,18 +260,18 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
         // Add options at the end
         const promptChoices = [
             ...choices,
-            new inquirer_1.default.Separator(),
+            new inquirer.Separator(),
             { name: 'Refresh destination list...', value: refreshValue },
             { name: 'Enter destination manually...', value: manualEntryValue }
         ];
         if (choices.length === 0) {
-            ui_1.logger.warn('No destinations found via xcodebuild.');
+            logger.warn('No destinations found via xcodebuild.');
             const choicesWithRefresh = [
                 { name: 'Refresh destination list...', value: refreshValue },
                 { name: 'Use Default (iPhone 17 Pro)', value: 'platform=iOS Simulator,name=iPhone 17 Pro' },
                 { name: 'Enter destination manually...', value: manualEntryValue }
             ];
-            const answer = await inquirer_1.default.prompt([{
+            const answer = await inquirer.prompt([{
                     type: 'rawlist',
                     name: 'destination',
                     message: 'No simulators detected. Select an action:',
@@ -286,13 +280,13 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
             selectedDestination = answer.destination;
             // Handle refresh option for no destinations case
             if (selectedDestination === refreshValue) {
-                const refreshSpinner = (0, ui_1.spinner)('Refreshing destinations...');
+                const refreshSpinner = spinner('Refreshing destinations...');
                 refreshSpinner.start();
                 const refreshedChoices = await getDestinations(scheme, baseArgs, true); // Force refresh
                 refreshSpinner.stop();
                 if (refreshedChoices.length > 0) {
                     const refreshedDefaultIndex = refreshedChoices.findIndex(c => c.name.includes('iPhone 17 Pro'));
-                    const refreshedAnswer = await inquirer_1.default.prompt([{
+                    const refreshedAnswer = await inquirer.prompt([{
                             type: 'rawlist',
                             name: 'destination',
                             message: 'Select a simulator destination (refreshed list):',
@@ -303,7 +297,7 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
                     selectedDestination = refreshedAnswer.destination;
                 }
                 else {
-                    ui_1.logger.warn('Still no destinations found after refresh. Using default.');
+                    logger.warn('Still no destinations found after refresh. Using default.');
                     selectedDestination = 'platform=iOS Simulator,name=iPhone 17 Pro';
                 }
             }
@@ -311,7 +305,7 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
         else {
             // Find index of default choice to set as default in rawlist (indices are 0-based in config, displayed as 1-based)
             const defaultIndex = choices.findIndex(c => c.name.includes('iPhone 17 Pro'));
-            const answer = await inquirer_1.default.prompt([{
+            const answer = await inquirer.prompt([{
                     type: 'rawlist',
                     name: 'destination',
                     message: 'Select a simulator destination (type the number):',
@@ -322,14 +316,14 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
             selectedDestination = answer.destination;
             // Handle refresh option
             if (selectedDestination === refreshValue) {
-                const refreshSpinner = (0, ui_1.spinner)('Refreshing destinations...');
+                const refreshSpinner = spinner('Refreshing destinations...');
                 refreshSpinner.start();
                 const refreshedChoices = await getDestinations(scheme, baseArgs, true); // Force refresh
                 refreshSpinner.stop();
                 if (refreshedChoices.length === 0) {
-                    ui_1.logger.warn('No destinations found after refresh.');
+                    logger.warn('No destinations found after refresh.');
                     // Fall back to manual entry or default
-                    const fallbackAnswer = await inquirer_1.default.prompt([{
+                    const fallbackAnswer = await inquirer.prompt([{
                             type: 'rawlist',
                             name: 'destination',
                             message: 'No destinations found. Select an action:',
@@ -339,7 +333,7 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
                 }
                 else {
                     const refreshedDefaultIndex = refreshedChoices.findIndex(c => c.name.includes('iPhone 17 Pro'));
-                    const refreshedAnswer = await inquirer_1.default.prompt([{
+                    const refreshedAnswer = await inquirer.prompt([{
                             type: 'rawlist',
                             name: 'destination',
                             message: 'Select a simulator destination (refreshed list):',
@@ -352,7 +346,7 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
             }
         }
         if (selectedDestination === manualEntryValue) {
-            const manualAnswer = await inquirer_1.default.prompt([{
+            const manualAnswer = await inquirer.prompt([{
                     type: 'input',
                     name: 'customDestination',
                     message: 'Enter device name (e.g. "iPhone 17 Pro"):',
@@ -368,7 +362,7 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
             selectedDestination = input;
         }
     }
-    const testSpin = (0, ui_1.spinner)(`Running tests on ${selectedDestination}${selectedTestPlan ? ` with test plan: ${selectedTestPlan}` : ''}...`).start();
+    const testSpin = spinner(`Running tests on ${selectedDestination}${selectedTestPlan ? ` with test plan: ${selectedTestPlan}` : ''}...`).start();
     try {
         const testArgs = [
             'test',
@@ -382,7 +376,7 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
         if (selectedTestPlan) {
             testArgs.push('-testPlan', selectedTestPlan);
         }
-        const subprocess = (0, execa_1.execa)('xcodebuild', testArgs, {
+        const subprocess = execa('xcodebuild', testArgs, {
             all: true,
             stdio: ['ignore', 'pipe', 'pipe']
         });
@@ -428,15 +422,13 @@ const runXcodeTests = async (scheme, destination, projectPath, workspacePath, re
         };
     }
 };
-exports.runXcodeTests = runXcodeTests;
-const getCoverageData = async (xcresultPath) => {
+export const getCoverageData = async (xcresultPath) => {
     try {
-        const { stdout } = await (0, execa_1.execa)('xcrun', ['xccov', 'view', '--report', '--json', xcresultPath]);
+        const { stdout } = await execa('xcrun', ['xccov', 'view', '--report', '--json', xcresultPath]);
         return JSON.parse(stdout);
     }
     catch (error) {
-        ui_1.logger.error('Failed to parse coverage data from xcresult.');
+        logger.error('Failed to parse coverage data from xcresult.');
         throw error;
     }
 };
-exports.getCoverageData = getCoverageData;

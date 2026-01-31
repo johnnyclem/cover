@@ -6,8 +6,8 @@ import {
   PRFileCoverage,
   PRCoverageResult,
   CoverageFormat,
-} from './types';
-import { expandHunksToLines } from './git';
+} from './types.js';
+import { expandHunksToLines } from './git.js';
 import path from 'path';
 
 /**

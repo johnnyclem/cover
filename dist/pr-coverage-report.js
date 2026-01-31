@@ -1,13 +1,5 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.formatPRCoverageReport = formatPRCoverageReport;
-exports.printPRCoverageReport = printPRCoverageReport;
-exports.formatPRCoverageSummaryLine = formatPRCoverageSummaryLine;
-const chalk_1 = __importDefault(require("chalk"));
-const cli_table3_1 = __importDefault(require("cli-table3"));
+import chalk from 'chalk';
+import Table from 'cli-table3';
 /**
  * Format PR coverage result for display.
  *
@@ -15,7 +7,7 @@ const cli_table3_1 = __importDefault(require("cli-table3"));
  * @param options - Formatting options
  * @returns Formatted string ready for console output
  */
-function formatPRCoverageReport(result, options = {}) {
+export function formatPRCoverageReport(result, options = {}) {
     const { strict = false } = options;
     if (strict) {
         return formatStrictReport(result, options);
@@ -68,14 +60,14 @@ function formatStyledReport(result, options) {
     const output = [];
     // Header
     output.push('');
-    output.push(chalk_1.default.cyan.bold('=== PR Line Coverage Report ==='));
-    output.push(chalk_1.default.gray(`Base: ${result.metadata.baseBranch} | Head: ${result.metadata.headCommit} | Format: ${result.metadata.coverageFormat}`));
+    output.push(chalk.cyan.bold('=== PR Line Coverage Report ==='));
+    output.push(chalk.gray(`Base: ${result.metadata.baseBranch} | Head: ${result.metadata.headCommit} | Format: ${result.metadata.coverageFormat}`));
     output.push('');
     // Summary first
     const summaryPassing = result.summary.lineCoveragePercent >= threshold;
-    const summaryColor = summaryPassing ? chalk_1.default.green : chalk_1.default.red;
-    const summaryIcon = summaryPassing ? chalk_1.default.green('PASS') : chalk_1.default.red('FAIL');
-    output.push(chalk_1.default.bold('Summary:'));
+    const summaryColor = summaryPassing ? chalk.green : chalk.red;
+    const summaryIcon = summaryPassing ? chalk.green('PASS') : chalk.red('FAIL');
+    output.push(chalk.bold('Summary:'));
     output.push(`  New/Updated Lines: ${result.summary.totalNewUpdatedLines}`);
     output.push(`  Covered Lines:     ${result.summary.totalCoveredLines}`);
     output.push(`  Uncovered Lines:   ${result.summary.totalUncoveredLines}`);
@@ -83,14 +75,14 @@ function formatStyledReport(result, options) {
     output.push('');
     // File table
     if (result.files.length > 0) {
-        const table = new cli_table3_1.default({
+        const table = new Table({
             head: [
-                chalk_1.default.cyan('File'),
-                chalk_1.default.cyan('New Lines'),
-                chalk_1.default.cyan('Covered'),
-                chalk_1.default.cyan('Uncovered'),
-                chalk_1.default.cyan('Coverage'),
-                chalk_1.default.cyan('Status'),
+                chalk.cyan('File'),
+                chalk.cyan('New Lines'),
+                chalk.cyan('Covered'),
+                chalk.cyan('Uncovered'),
+                chalk.cyan('Coverage'),
+                chalk.cyan('Status'),
             ],
             style: { head: [] }, // Don't double-colorize
             colWidths: [50, 12, 10, 12, 12, 8],
@@ -98,7 +90,7 @@ function formatStyledReport(result, options) {
         });
         for (const file of result.files) {
             const isPassing = file.coveragePercent >= threshold;
-            const statusColor = isPassing ? chalk_1.default.green : chalk_1.default.red;
+            const statusColor = isPassing ? chalk.green : chalk.red;
             const coverageStr = file.coveragePercent.toFixed(1) + '%';
             // Truncate uncovered lines for display
             let uncoveredStr;
@@ -119,7 +111,7 @@ function formatStyledReport(result, options) {
                 file.coveredLines.toString(),
                 uncoveredStr,
                 statusColor(coverageStr),
-                isPassing ? chalk_1.default.green('PASS') : chalk_1.default.red('FAIL'),
+                isPassing ? chalk.green('PASS') : chalk.red('FAIL'),
             ]);
         }
         output.push(table.toString());
@@ -128,12 +120,12 @@ function formatStyledReport(result, options) {
     // Detailed uncovered lines for failing files
     const failingFiles = result.files.filter(f => f.coveragePercent < threshold && f.uncoveredLineNumbers.length > 0);
     if (failingFiles.length > 0) {
-        output.push(chalk_1.default.yellow.bold('Uncovered Lines (Failing Files):'));
+        output.push(chalk.yellow.bold('Uncovered Lines (Failing Files):'));
         output.push('');
         for (const file of failingFiles) {
-            output.push(chalk_1.default.yellow(`  ${file.path}:`));
+            output.push(chalk.yellow(`  ${file.path}:`));
             const linesToShow = file.uncoveredLineNumbers.slice(0, maxUncoveredLines);
-            output.push(chalk_1.default.gray(`    Lines: ${linesToShow.join(', ')}${file.uncoveredLineNumbers.length > maxUncoveredLines ? ` ... (+${file.uncoveredLineNumbers.length - maxUncoveredLines} more)` : ''}`));
+            output.push(chalk.gray(`    Lines: ${linesToShow.join(', ')}${file.uncoveredLineNumbers.length > maxUncoveredLines ? ` ... (+${file.uncoveredLineNumbers.length - maxUncoveredLines} more)` : ''}`));
         }
         output.push('');
     }
@@ -171,13 +163,13 @@ function shortenPath(filePath, maxLength) {
  * Print PR coverage table directly to console.
  * Convenience wrapper for quick output.
  */
-function printPRCoverageReport(result, options = {}) {
+export function printPRCoverageReport(result, options = {}) {
     console.log(formatPRCoverageReport(result, options));
 }
 /**
  * Format a simple one-line summary.
  */
-function formatPRCoverageSummaryLine(result) {
+export function formatPRCoverageSummaryLine(result) {
     const { summary } = result;
     return `PR Coverage: ${summary.lineCoveragePercent.toFixed(1)}% (${summary.totalCoveredLines}/${summary.totalNewUpdatedLines} new lines covered)`;
 }

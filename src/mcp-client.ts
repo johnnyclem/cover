@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { logger } from "./ui";
+import { logger } from "./ui.js";
 
 export class MCPClient {
   private client: Client | null = null;

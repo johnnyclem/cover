@@ -1,16 +1,10 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.runAgent = exports.generatePrompt = exports.selectAgent = void 0;
-const inquirer_1 = __importDefault(require("inquirer"));
-const execa_1 = require("execa");
-const fs_1 = __importDefault(require("fs"));
-const ui_1 = require("./ui");
-const llm_1 = require("./llm");
-const selectAgent = async () => {
-    const answer = await inquirer_1.default.prompt([
+import inquirer from 'inquirer';
+import { execa } from 'execa';
+import fs from 'fs';
+import { logger, spinner } from './ui.js';
+import { getFixerClient } from './llm.js';
+export const selectAgent = async () => {
+    const answer = await inquirer.prompt([
         {
             type: 'list',
             name: 'agent',
@@ -28,10 +22,9 @@ const selectAgent = async () => {
     ]);
     return answer.agent;
 };
-exports.selectAgent = selectAgent;
-const generatePrompt = (filePath) => {
+export const generatePrompt = (filePath) => {
     try {
-        const content = fs_1.default.readFileSync(filePath, 'utf-8');
+        const content = fs.readFileSync(filePath, 'utf-8');
         return `
 You are an expert iOS/macOS developer.
 I need you to write unit tests for the following file: ${filePath}
@@ -53,8 +46,7 @@ Return only the Swift code for the test file.
         return `Could not read file ${filePath}`;
     }
 };
-exports.generatePrompt = generatePrompt;
-const runAgent = async (agentName, prompt) => {
+export const runAgent = async (agentName, prompt) => {
     if (agentName === 'Internal Auto-Generate') {
         await generateInternal(prompt);
         return;
@@ -63,34 +55,33 @@ const runAgent = async (agentName, prompt) => {
         console.log('\n--- PROMPT START ---');
         console.log(prompt);
         console.log('--- PROMPT END ---\n');
-        await inquirer_1.default.prompt([{ type: 'input', name: 'continue', message: 'Press Enter after you have generated the tests...' }]);
+        await inquirer.prompt([{ type: 'input', name: 'continue', message: 'Press Enter after you have generated the tests...' }]);
         return;
     }
     if (agentName === 'Skip')
         return;
     try {
-        ui_1.logger.info(`Running ${agentName}...`);
+        logger.info(`Running ${agentName}...`);
         if (agentName === 'opencode') {
-            ui_1.logger.warn(`Launching ${agentName}. Please paste the prompt if needed or interact naturally.`);
+            logger.warn(`Launching ${agentName}. Please paste the prompt if needed or interact naturally.`);
             console.log('\n--- PROMPT ---');
             console.log(prompt);
             console.log('--------------\n');
-            await (0, execa_1.execa)(agentName, [], { stdio: 'inherit' });
+            await execa(agentName, [], { stdio: 'inherit' });
         }
         else {
             // generic
-            await (0, execa_1.execa)(agentName, [prompt], { stdio: 'inherit' });
+            await execa(agentName, [prompt], { stdio: 'inherit' });
         }
     }
     catch (error) {
-        ui_1.logger.error(`Failed to run agent ${agentName}: ${error}`);
+        logger.error(`Failed to run agent ${agentName}: ${error}`);
     }
 };
-exports.runAgent = runAgent;
 const generateInternal = async (prompt) => {
     try {
-        const fixer = (0, llm_1.getFixerClient)();
-        const spin = (0, ui_1.spinner)(`Generating tests with ${fixer.model}...`).start();
+        const fixer = getFixerClient();
+        const spin = spinner(`Generating tests with ${fixer.model}...`).start();
         const response = await fixer.client.chat.completions.create({
             model: fixer.model,
             messages: [{ role: 'user', content: prompt }]
@@ -99,7 +90,7 @@ const generateInternal = async (prompt) => {
         code = code.replace(/```swift/g, '').replace(/```/g, '').trim();
         spin.succeed('Tests generated.');
         // Ask where to save
-        const answer = await inquirer_1.default.prompt([{
+        const answer = await inquirer.prompt([{
                 type: 'input',
                 name: 'path',
                 message: 'Where should I save the test file?',
@@ -108,13 +99,13 @@ const generateInternal = async (prompt) => {
             }]);
         // Ensure directory exists
         const dir = answer.path.substring(0, answer.path.lastIndexOf('/'));
-        if (dir && !fs_1.default.existsSync(dir)) {
-            fs_1.default.mkdirSync(dir, { recursive: true });
+        if (dir && !fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
         }
-        fs_1.default.writeFileSync(answer.path, code);
-        ui_1.logger.success(`Tests saved to ${answer.path}`);
+        fs.writeFileSync(answer.path, code);
+        logger.success(`Tests saved to ${answer.path}`);
     }
     catch (e) {
-        ui_1.logger.error(`Generation failed: ${e.message}`);
+        logger.error(`Generation failed: ${e.message}`);
     }
 };

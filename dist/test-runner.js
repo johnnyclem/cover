@@ -1,25 +1,20 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.JSTestRunner = void 0;
-exports.runJSTests = runJSTests;
-exports.runTestsForChangedFiles = runTestsForChangedFiles;
-const index_js_1 = require("./frameworks/index.js");
-const coverage_js_js_1 = require("./coverage-js.js");
-const ui_js_1 = require("./ui.js");
-class JSTestRunner {
+import { detectFramework, createFramework } from './frameworks/index.js';
+import { JSCoverageProcessor } from './coverage-js.js';
+import { spinner } from './ui.js';
+export class JSTestRunner {
     framework = null;
     coverageProcessor;
     constructor() {
-        this.coverageProcessor = new coverage_js_js_1.JSCoverageProcessor();
+        this.coverageProcessor = new JSCoverageProcessor();
     }
     async initialize(options) {
         if (options.framework) {
-            this.framework = (0, index_js_1.createFramework)(options.framework);
+            this.framework = createFramework(options.framework);
         }
         else {
-            const detected = await (0, index_js_1.detectFramework)();
+            const detected = await detectFramework();
             if (detected) {
-                this.framework = (0, index_js_1.createFramework)(detected);
+                this.framework = createFramework(detected);
             }
             else {
                 throw new Error('No JS/TS testing framework detected. Please specify a framework.');
@@ -31,7 +26,7 @@ class JSTestRunner {
         if (!this.framework) {
             throw new Error('Test runner not initialized. Call initialize() first.');
         }
-        const testSpinner = (0, ui_js_1.spinner)(`Running tests with ${this.framework.getConfig().name}...`);
+        const testSpinner = spinner(`Running tests with ${this.framework.getConfig().name}...`);
         try {
             let testArgs = [];
             // Add specific test files if provided
@@ -109,7 +104,7 @@ class JSTestRunner {
                 output: 'No failed tests to rerun'
             };
         }
-        const testSpinner = (0, ui_js_1.spinner)(`Rerunning ${failedFiles.length} failed test files...`);
+        const testSpinner = spinner(`Rerunning ${failedFiles.length} failed test files...`);
         try {
             const result = await this.framework.runTests(failedFiles);
             testSpinner.succeed(`Rerun completed: ${result.passed ? 'All passed' : 'Some still failing'}`);
@@ -151,18 +146,17 @@ class JSTestRunner {
         return this.framework.isSourceFile(filePath);
     }
     async detectFramework() {
-        return await (0, index_js_1.detectFramework)();
+        return await detectFramework();
     }
 }
-exports.JSTestRunner = JSTestRunner;
 // Convenience function for quick test execution
-async function runJSTests(options = {}) {
+export async function runJSTests(options = {}) {
     const runner = new JSTestRunner();
     await runner.initialize(options);
     return await runner.runTests(options);
 }
 // Convenience function for running tests for changed files
-async function runTestsForChangedFiles(changedFiles, options = {}) {
+export async function runTestsForChangedFiles(changedFiles, options = {}) {
     const runner = new JSTestRunner();
     await runner.initialize(options);
     return await runner.runTestsForChangedFiles(changedFiles, options);

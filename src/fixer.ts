@@ -1,8 +1,8 @@
 import fs from 'fs';
-import { runXcodeTests } from './xcode';
-import { getTestFailures, getBuildFailures, TestFailure } from './results';
-import { getAnalyzerClient, getFixerClient } from './llm';
-import { logger, spinner } from './ui';
+import { runXcodeTests } from './xcode.js';
+import { getTestFailures, getBuildFailures, TestFailure } from './results.js';
+import { getAnalyzerClient, getFixerClient } from './llm.js';
+import { logger, spinner } from './ui.js';
 
 export const runTestFixLoop = async (scheme: string, destination: string | undefined, maxRetries: number = 3, refreshDestinations: boolean = false, testPlan?: string) => {
     let retries = 0;

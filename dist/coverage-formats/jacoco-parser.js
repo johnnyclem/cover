@@ -1,11 +1,5 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.JacocoParser = void 0;
-const base_parser_1 = require("./base-parser");
-const fs_1 = __importDefault(require("fs"));
+import { BaseCoverageParser } from './base-parser.js';
+import fs from 'fs';
 /**
  * Parser for JaCoCo XML coverage format.
  *
@@ -31,7 +25,7 @@ const fs_1 = __importDefault(require("fs"));
  * A line is considered covered if ci > 0.
  * A line is considered uncovered if ci = 0 and mi > 0.
  */
-class JacocoParser extends base_parser_1.BaseCoverageParser {
+export class JacocoParser extends BaseCoverageParser {
     format = 'jacoco';
     fileExtensions = ['.xml'];
     async parse(artifactPaths, options = {}) {
@@ -42,7 +36,7 @@ class JacocoParser extends base_parser_1.BaseCoverageParser {
                 console.log(`Parsing JaCoCo XML file: ${filePath}`);
             }
             try {
-                const content = fs_1.default.readFileSync(filePath, 'utf-8');
+                const content = fs.readFileSync(filePath, 'utf-8');
                 // Check if this is actually a JaCoCo file
                 if (!content.includes('<report') || !content.includes('</report>')) {
                     if (verbose) {
@@ -131,4 +125,3 @@ class JacocoParser extends base_parser_1.BaseCoverageParser {
         return result;
     }
 }
-exports.JacocoParser = JacocoParser;

@@ -1,12 +1,9 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.BaseCoverageParser = void 0;
-const glob_1 = require("glob");
+import { glob } from 'glob';
 /**
  * Abstract base class for coverage format parsers.
  * Each parser implementation handles a specific coverage format.
  */
-class BaseCoverageParser {
+export class BaseCoverageParser {
     /**
      * Check if this parser can handle the given file based on extension.
      */
@@ -21,7 +18,7 @@ class BaseCoverageParser {
         const results = [];
         for (const pattern of patterns) {
             if (pattern.includes('*')) {
-                const matches = await (0, glob_1.glob)(pattern);
+                const matches = await glob(pattern);
                 results.push(...matches);
             }
             else {
@@ -54,4 +51,3 @@ class BaseCoverageParser {
         };
     }
 }
-exports.BaseCoverageParser = BaseCoverageParser;

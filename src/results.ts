@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { logger } from './ui';
+import { logger } from './ui.js';
 import { 
     parseOutput, 
     convertToTestFailures, 
@@ -8,8 +8,8 @@ import {
     areTestsPassing,
     getWarningsByFile,
     getErrorsByFile
-} from './xcsift';
-import { XcsiftResult, XcsiftParseOptions } from './xcsift-types';
+} from './xcsift.js';
+import { XcsiftResult, XcsiftParseOptions } from './xcsift-types.js';
 
 export interface TestFailure {
     testCaseName: string;

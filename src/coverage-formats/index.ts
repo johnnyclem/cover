@@ -1,9 +1,9 @@
-import { CoverageFormat, LineCoverageData, CoverageManifest } from '../types';
-import { BaseCoverageParser, ParserOptions } from './base-parser';
-import { XccovParser } from './xccov-parser';
-import { LcovParser } from './lcov-parser';
-import { JacocoParser } from './jacoco-parser';
-import { LlvmCovParser } from './llvm-cov-parser';
+import { CoverageFormat, LineCoverageData, CoverageManifest } from '../types.js';
+import { BaseCoverageParser, ParserOptions } from './base-parser.js';
+import { XccovParser } from './xccov-parser.js';
+import { LcovParser } from './lcov-parser.js';
+import { JacocoParser } from './jacoco-parser.js';
+import { LlvmCovParser } from './llvm-cov-parser.js';
 import { glob } from 'glob';
 import fs from 'fs';
 import path from 'path';
@@ -197,8 +197,8 @@ export async function parseCoverageArtifacts(
 }
 
 // Re-export base parser for extension
-export { BaseCoverageParser, ParserOptions } from './base-parser';
-export { XccovParser } from './xccov-parser';
-export { LcovParser } from './lcov-parser';
-export { JacocoParser } from './jacoco-parser';
-export { LlvmCovParser } from './llvm-cov-parser';
+export { BaseCoverageParser, ParserOptions } from './base-parser.js';
+export { XccovParser } from './xccov-parser.js';
+export { LcovParser } from './lcov-parser.js';
+export { JacocoParser } from './jacoco-parser.js';
+export { LlvmCovParser } from './llvm-cov-parser.js';

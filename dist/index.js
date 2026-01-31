@@ -1,35 +1,30 @@
 #!/usr/bin/env node
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const commander_1 = require("commander");
-const git_1 = require("./git");
-const xcode_1 = require("./xcode");
-const coverage_1 = require("./coverage");
-const ui_1 = require("./ui");
-const agent_1 = require("./agent");
-const fixer_1 = require("./fixer");
-const llm_1 = require("./llm");
-const init_1 = require("./init");
-const results_1 = require("./results");
-const frameworks_1 = require("./frameworks");
-const test_runner_1 = require("./test-runner");
-const config_1 = require("./config");
-const inquirer_1 = __importDefault(require("inquirer"));
-const test_plan_1 = require("./test-plan");
-const execa_1 = require("execa");
-const glob_1 = require("glob");
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
-const os_1 = __importDefault(require("os"));
-const coverage_formats_1 = require("./coverage-formats");
-const pr_coverage_1 = require("./pr-coverage");
-const pr_coverage_report_1 = require("./pr-coverage-report");
-const flaky_1 = require("./flaky");
-const xcsift_1 = require("./xcsift");
-const program = new commander_1.Command();
+import { Command } from 'commander';
+import { getChangedFiles, getCurrentBranch, getHeadCommit, validateBranchExists, getChangedSwiftLines } from './git.js';
+import { runXcodeTests, getCoverageData } from './xcode.js';
+import { processCoverageLegacy } from './coverage.js';
+import { printCoverageTable, logger, spinner } from './ui.js';
+import { selectAgent, generatePrompt, runAgent } from './agent.js';
+import { runTestFixLoop, fixFailure } from './fixer.js';
+import { setupLLM } from './llm.js';
+import { runInit } from './init.js';
+import { getTestFailures, getBuildFailures } from './results.js';
+import { detectFramework } from './frameworks/index.js';
+import { JSTestRunner } from './test-runner.js';
+import { loadConfig } from './config.js';
+import inquirer from 'inquirer';
+import { runTestPlan, parseTestPlan } from './test-plan.js';
+import { execa } from 'execa';
+import { glob } from 'glob';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { parseCoverageArtifacts, findManifest, findExistingXcresult, getSupportedFormats } from './coverage-formats/index.js';
+import { calculatePRCoverage } from './pr-coverage.js';
+import { printPRCoverageReport } from './pr-coverage-report.js';
+import { getFlakyTests, printFlakyTestReport } from './flaky.js';
+import { parseOutput } from './xcsift.js';
+const program = new Command();
 program
     .name('cover')
     .description('Automated TDD/Coverage loop for iOS/macOS and JavaScript/TypeScript')
@@ -38,10 +33,10 @@ program.command('init [path]')
     .description('Initialize Cover in a project directory')
     .action(async (path) => {
     try {
-        await (0, init_1.runInit)(path || '.');
+        await runInit(path || '.');
     }
     catch (error) {
-        ui_1.logger.error(error.message || error);
+        logger.error(error.message || error);
         process.exit(1);
     }
 });
@@ -56,20 +51,20 @@ program.command('fix')
     .option('--refresh-destinations', 'Refresh the cached list of Xcode run destinations')
     .action(async (options) => {
     try {
-        await (0, llm_1.setupLLM)();
+        await setupLLM();
         // Detect framework
-        const config = (0, config_1.loadConfig)();
+        const config = loadConfig();
         let framework = options.framework || config?.framework;
         if (!framework) {
-            const detected = await (0, frameworks_1.detectFramework)();
+            const detected = await detectFramework();
             if (detected) {
                 framework = detected;
-                ui_1.logger.info(`Detected framework: ${framework}`);
+                logger.info(`Detected framework: ${framework}`);
             }
         }
         if (framework && framework !== 'XCTest') {
             // JS/TS framework - use JSTestRunner
-            const runner = new test_runner_1.JSTestRunner();
+            const runner = new JSTestRunner();
             await runner.initialize({ framework });
             // Run tests and fix failures
             const result = await runner.runTests({
@@ -78,12 +73,12 @@ program.command('fix')
                 additionalArgs: []
             });
             if (!result.passed && result.failures) {
-                ui_1.logger.info(`${result.failures.length} test failures found. Starting auto-fix...`);
+                logger.info(`${result.failures.length} test failures found. Starting auto-fix...`);
                 for (const failure of result.failures.slice(0, parseInt(options.retries))) {
-                    const agent = await (0, agent_1.selectAgent)();
+                    const agent = await selectAgent();
                     const prompt = `Fix this test failure:\n\nFile: ${failure.file}\nError: ${failure.message}\n\n${failure.fullMessage}`;
-                    await (0, agent_1.runAgent)(agent, prompt);
-                    ui_1.logger.info(`Applied fix for: ${failure.message}`);
+                    await runAgent(agent, prompt);
+                    logger.info(`Applied fix for: ${failure.message}`);
                 }
             }
         }
@@ -91,7 +86,7 @@ program.command('fix')
             // Xcode framework - use existing logic
             let scheme = options.scheme;
             if (!scheme) {
-                const answers = await inquirer_1.default.prompt([{
+                const answers = await inquirer.prompt([{
                         type: 'input',
                         name: 'scheme',
                         message: 'Enter Xcode Scheme to test:',
@@ -99,11 +94,11 @@ program.command('fix')
                     }]);
                 scheme = answers.scheme;
             }
-            await (0, fixer_1.runTestFixLoop)(scheme, options.destination, parseInt(options.retries), options.refreshDestinations, options.testPlan);
+            await runTestFixLoop(scheme, options.destination, parseInt(options.retries), options.refreshDestinations, options.testPlan);
         }
     }
     catch (error) {
-        ui_1.logger.error(error.message || error);
+        logger.error(error.message || error);
         process.exit(1);
     }
 });
@@ -125,14 +120,14 @@ program
     .option('--threshold <number>', 'Pass rate threshold for flagging (default: 95)', '95')
     .action(async (options) => {
     try {
-        const report = await (0, flaky_1.getFlakyTests)({
+        const report = await getFlakyTests({
             projectSlug: options.projectSlug,
             workspaceRoot: process.cwd()
         });
-        (0, flaky_1.printFlakyTestReport)(report);
+        printFlakyTestReport(report);
     }
     catch (error) {
-        ui_1.logger.error(error.message || error);
+        logger.error(error.message || error);
         process.exit(1);
     }
 });
@@ -146,10 +141,10 @@ program.command('parse')
         // Read from stdin and parse
         const input = await readStdin();
         if (!input) {
-            ui_1.logger.error('No input provided via stdin.');
+            logger.error('No input provided via stdin.');
             process.exit(1);
         }
-        const result = await (0, xcsift_1.parseOutput)(input, {
+        const result = await parseOutput(input, {
             includeWarnings: options.warnings,
             includeCoverage: options.coverage,
             slowThreshold: options.slowThreshold ? parseFloat(options.slowThreshold) : undefined
@@ -157,7 +152,7 @@ program.command('parse')
         console.log(JSON.stringify(result, null, 2));
     }
     catch (error) {
-        ui_1.logger.error(error.message || error);
+        logger.error(error.message || error);
         process.exit(1);
     }
 });
@@ -177,30 +172,30 @@ program
     .option('--pr-lines-only', 'Show only PR-changed lines in coverage report')
     .action(async (options) => {
     try {
-        ui_1.logger.info('Starting Cover...');
+        logger.info('Starting Cover...');
         // 1. Analyze Git
-        const currentBranch = await (0, git_1.getCurrentBranch)();
-        const changedFiles = await (0, git_1.getChangedFiles)(options.branch);
+        const currentBranch = await getCurrentBranch();
+        const changedFiles = await getChangedFiles(options.branch);
         if (changedFiles.length === 0) {
-            ui_1.logger.success('No changed source files found to check.');
+            logger.success('No changed source files found to check.');
             return;
         }
-        ui_1.logger.info(`Found ${changedFiles.length} changed file(s) on ${currentBranch} vs ${options.branch}`);
+        logger.info(`Found ${changedFiles.length} changed file(s) on ${currentBranch} vs ${options.branch}`);
         // Detect framework
-        const config = (0, config_1.loadConfig)();
+        const config = loadConfig();
         let framework = options.framework || config?.framework;
         if (!framework) {
-            const detected = await (0, frameworks_1.detectFramework)();
+            const detected = await detectFramework();
             if (detected) {
                 framework = detected;
-                ui_1.logger.info(`Detected framework: ${framework}`);
+                logger.info(`Detected framework: ${framework}`);
             }
         }
         // Setup LLM early if user wants to use agent features
-        await (0, llm_1.setupLLM)();
+        await setupLLM();
         if (framework && framework !== 'XCTest') {
             // JS/TS framework - use JSTestRunner
-            const runner = new test_runner_1.JSTestRunner();
+            const runner = new JSTestRunner();
             await runner.initialize({ framework });
             // Run tests for changed files
             const result = await runner.runTestsForChangedFiles(changedFiles, {
@@ -208,8 +203,8 @@ program
                 gitDiff: { changedFiles }
             });
             if (!result.passed && result.failures) {
-                ui_1.logger.error(`Found ${result.failures.length} test failure(s).`);
-                const { fixAction } = await inquirer_1.default.prompt([{
+                logger.error(`Found ${result.failures.length} test failure(s).`);
+                const { fixAction } = await inquirer.prompt([{
                         type: 'list',
                         name: 'fixAction',
                         message: 'Tests failed. What would you like to do?',
@@ -223,31 +218,31 @@ program
                     return;
                 if (fixAction === 'Auto-Fix Failures with AI') {
                     for (const failure of result.failures) {
-                        const agent = await (0, agent_1.selectAgent)();
+                        const agent = await selectAgent();
                         const prompt = `Fix this test failure:\n\nFile: ${failure.file}\nError: ${failure.message}\n\n${failure.fullMessage}`;
-                        await (0, agent_1.runAgent)(agent, prompt);
+                        await runAgent(agent, prompt);
                     }
                 }
                 else if (fixAction === 'Generate Missing Tests') {
                     if (result.coverage && result.coverage.files.length > 0) {
-                        const agent = await (0, agent_1.selectAgent)();
+                        const agent = await selectAgent();
                         const targetFile = result.coverage.files.sort((a, b) => a.lineCoverage - b.lineCoverage)[0];
-                        ui_1.logger.info(`Generating tests for: ${targetFile.path} (${targetFile.lineCoverage.toFixed(1)}%)`);
-                        const prompt = (0, agent_1.generatePrompt)(targetFile.path);
-                        await (0, agent_1.runAgent)(agent, prompt);
+                        logger.info(`Generating tests for: ${targetFile.path} (${targetFile.lineCoverage.toFixed(1)}%)`);
+                        const prompt = generatePrompt(targetFile.path);
+                        await runAgent(agent, prompt);
                     }
                 }
             }
             // Show coverage if available
             if (result.coverage) {
-                (0, ui_1.printCoverageTable)(result.coverage.files.filter(f => changedFiles.some(cf => f.path.includes(cf))));
+                printCoverageTable(result.coverage.files.filter(f => changedFiles.some(cf => f.path.includes(cf))));
                 // Check threshold
                 const failedFiles = result.coverage.files.filter(f => changedFiles.some(cf => f.path.includes(cf)) && f.lineCoverage < parseFloat(options.threshold));
                 if (failedFiles.length === 0) {
-                    ui_1.logger.success('All changed files meet the coverage threshold!');
+                    logger.success('All changed files meet the coverage threshold!');
                 }
                 else {
-                    ui_1.logger.warn(`${failedFiles.length} file(s) are below the ${options.threshold}% threshold.`);
+                    logger.warn(`${failedFiles.length} file(s) are below the ${options.threshold}% threshold.`);
                 }
             }
         }
@@ -260,7 +255,7 @@ program
                 // 2. Ask user for Scheme if not provided
                 let scheme = options.scheme;
                 if (!scheme) {
-                    const answers = await inquirer_1.default.prompt([{
+                    const answers = await inquirer.prompt([{
                             type: 'input',
                             name: 'scheme',
                             message: 'Enter Xcode Scheme to test:',
@@ -270,31 +265,31 @@ program
                     options.scheme = scheme;
                 }
                 // 3. Run Tests
-                const result = await (0, xcode_1.runXcodeTests)(scheme, destination, options.project, options.workspace, options.refreshDestinations, options.testPlan);
+                const result = await runXcodeTests(scheme, destination, options.project, options.workspace, options.refreshDestinations, options.testPlan);
                 const xcresultPath = result.xcresultPath;
                 destination = result.selectedDestination;
                 // 4. Check for Failures
-                let testFailures = await (0, results_1.getTestFailures)(xcresultPath);
+                let testFailures = await getTestFailures(xcresultPath);
                 // If xcodebuild exited with non-zero, check for build errors.
                 // Note: xcodebuild exits non-zero for BOTH build failures AND test failures.
                 // Prioritize build errors (compilation/linker) over test failures.
                 if (!result.success) {
-                    const buildFailures = await (0, results_1.getBuildFailures)(result.log);
+                    const buildFailures = await getBuildFailures(result.log);
                     if (buildFailures.length > 0) {
                         testFailures = buildFailures;
                     }
                     else if (testFailures.length === 0) {
                         // No build errors and no test failures parsed - likely a test failure
                         // that we couldn't extract from xcresult. Don't block coverage.
-                        ui_1.logger.warn('Tests failed but no structured failure details found in xcresult.');
+                        logger.warn('Tests failed but no structured failure details found in xcresult.');
                     }
                 }
                 if (testFailures.length > 0) {
-                    ui_1.logger.error(`Found ${testFailures.length} failure(s).`);
+                    logger.error(`Found ${testFailures.length} failure(s).`);
                     // Check if these are build failures or test failures
                     const isBuildFailure = testFailures.some(f => f.testCaseName === 'Build Failure');
                     // Ask user if they want to fix failures first
-                    const { fixAction } = await inquirer_1.default.prompt([{
+                    const { fixAction } = await inquirer.prompt([{
                             type: 'list',
                             name: 'fixAction',
                             message: isBuildFailure ? 'Build failed. What would you like to do?' : 'Tests failed. What would you like to do?',
@@ -309,26 +304,26 @@ program
                     if (fixAction === 'Auto-Fix Failures with AI') {
                         // Try to fix the first failure
                         const failure = testFailures[0];
-                        ui_1.logger.info(`Attempting to fix: ${failure.testCaseName} in ${failure.fileName}`);
-                        const fixed = await (0, fixer_1.fixFailure)(failure);
+                        logger.info(`Attempting to fix: ${failure.testCaseName} in ${failure.fileName}`);
+                        const fixed = await fixFailure(failure);
                         if (fixed) {
-                            ui_1.logger.success('Fix applied! Re-running tests...');
+                            logger.success('Fix applied! Re-running tests...');
                             continue; // Loop again
                         }
                         else {
-                            ui_1.logger.warn('Could not fix failure.');
+                            logger.warn('Could not fix failure.');
                         }
                     }
                 }
                 // Determine if we should block coverage generation
                 // Block only if there are actual build failures (compilation/linker errors)
                 // Test failures (assertions) should NOT block coverage - xcodebuild exits non-zero for test failures too
-                const additionalBuildFailures = await (0, results_1.getBuildFailures)(result.log);
+                const additionalBuildFailures = await getBuildFailures(result.log);
                 const hasBuildErrors = testFailures.some(f => f.testCaseName === 'Build Failure') || additionalBuildFailures.length > 0;
                 const isRealBuildFailure = !result.success && hasBuildErrors;
                 if (isRealBuildFailure) {
-                    ui_1.logger.error('Cannot generate coverage data because the build failed.');
-                    const { retry } = await inquirer_1.default.prompt([{
+                    logger.error('Cannot generate coverage data because the build failed.');
+                    const { retry } = await inquirer.prompt([{
                             type: 'confirm',
                             name: 'retry',
                             message: 'Retry?',
@@ -340,45 +335,45 @@ program
                         break;
                 }
                 // 5. Get Data
-                const coverageJson = await (0, xcode_1.getCoverageData)(xcresultPath);
+                const coverageJson = await getCoverageData(xcresultPath);
                 // 6. Evaluate
-                const report = (0, coverage_1.processCoverageLegacy)(coverageJson, changedFiles);
-                (0, ui_1.printCoverageTable)(report);
+                const report = processCoverageLegacy(coverageJson, changedFiles);
+                printCoverageTable(report);
                 // 6b. Show PR line-level coverage if requested
                 if (options.prLinesOnly) {
                     try {
-                        const diffResult = await (0, git_1.getChangedSwiftLines)(options.branch);
+                        const diffResult = await getChangedSwiftLines(options.branch);
                         if (diffResult.files.length > 0) {
-                            const lineCoverageData = await (0, coverage_formats_1.parseCoverageArtifacts)({
+                            const lineCoverageData = await parseCoverageArtifacts({
                                 format: 'xccov',
                                 paths: [xcresultPath],
                                 parserOptions: { verbose: options.verbose }
                             });
-                            const headCommit = await (0, git_1.getHeadCommit)();
-                            const prResult = await (0, pr_coverage_1.calculatePRCoverage)(diffResult, lineCoverageData, { verbose: options.verbose });
+                            const headCommit = await getHeadCommit();
+                            const prResult = await calculatePRCoverage(diffResult, lineCoverageData, { verbose: options.verbose });
                             prResult.metadata.baseBranch = options.branch;
                             prResult.metadata.headCommit = headCommit;
                             prResult.metadata.coverageFormat = 'xccov';
                             console.log(''); // Separator
-                            (0, pr_coverage_report_1.printPRCoverageReport)(prResult, { threshold: parseFloat(options.threshold), verbose: options.verbose });
+                            printPRCoverageReport(prResult, { threshold: parseFloat(options.threshold), verbose: options.verbose });
                         }
                     }
                     catch (prError) {
                         if (options.verbose) {
-                            ui_1.logger.warn(`Could not calculate PR line coverage: ${prError.message}`);
+                            logger.warn(`Could not calculate PR line coverage: ${prError.message}`);
                         }
                     }
                 }
                 // 7. Check Threshold
                 const failedFiles = report.filter((f) => f.lineCoverage < parseFloat(options.threshold));
                 if (failedFiles.length === 0) {
-                    ui_1.logger.success('All changed files meet the coverage threshold!');
+                    logger.success('All changed files meet the coverage threshold!');
                     allPassed = true;
                     break;
                 }
-                ui_1.logger.warn(`${failedFiles.length} file(s) are below the ${options.threshold}% threshold.`);
+                logger.warn(`${failedFiles.length} file(s) are below the ${options.threshold}% threshold.`);
                 // 8. Iterate / Agent
-                const { action } = await inquirer_1.default.prompt([
+                const { action } = await inquirer.prompt([
                     {
                         type: 'list',
                         name: 'action',
@@ -394,17 +389,17 @@ program
                     break;
                 }
                 else if (action === 'Generate Tests with Agent') {
-                    const agent = await (0, agent_1.selectAgent)();
+                    const agent = await selectAgent();
                     const targetFile = failedFiles.sort((a, b) => a.lineCoverage - b.lineCoverage)[0];
-                    ui_1.logger.info(`Targeting ${targetFile.path} (${targetFile.lineCoverage.toFixed(1)}%)`);
-                    const prompt = (0, agent_1.generatePrompt)(targetFile.path);
-                    await (0, agent_1.runAgent)(agent, prompt);
+                    logger.info(`Targeting ${targetFile.path} (${targetFile.lineCoverage.toFixed(1)}%)`);
+                    const prompt = generatePrompt(targetFile.path);
+                    await runAgent(agent, prompt);
                 }
             }
         }
     }
     catch (error) {
-        ui_1.logger.error(error.message || error);
+        logger.error(error.message || error);
         process.exit(1);
     }
 });
@@ -417,24 +412,24 @@ program.command('test-plan <path>')
     .option('--no-coverage', 'Skip coverage generation')
     .action(async (planPath, options) => {
     try {
-        const plan = (0, test_plan_1.parseTestPlan)(planPath);
-        ui_1.logger.info(`Loaded test plan: ${planPath}`);
-        ui_1.logger.info(`Targets: ${plan.testTargets.map(t => t.target.name).join(', ')}`);
-        const result = await (0, test_plan_1.runTestPlan)(planPath, options.destination, options.project, options.workspace, options.testPlan);
+        const plan = parseTestPlan(planPath);
+        logger.info(`Loaded test plan: ${planPath}`);
+        logger.info(`Targets: ${plan.testTargets.map(t => t.target.name).join(', ')}`);
+        const result = await runTestPlan(planPath, options.destination, options.project, options.workspace, options.testPlan);
         if (!result.success) {
-            ui_1.logger.error('Tests failed.');
+            logger.error('Tests failed.');
             process.exit(1);
         }
         if (options.coverage !== false) {
-            ui_1.logger.info('Processing coverage...');
-            const coverageJson = await (0, xcode_1.getCoverageData)(result.xcresultPath);
-            const report = (0, coverage_1.processCoverageLegacy)(coverageJson, []);
-            (0, ui_1.printCoverageTable)(report);
+            logger.info('Processing coverage...');
+            const coverageJson = await getCoverageData(result.xcresultPath);
+            const report = processCoverageLegacy(coverageJson, []);
+            printCoverageTable(report);
         }
-        ui_1.logger.success('Test plan completed successfully.');
+        logger.success('Test plan completed successfully.');
     }
     catch (error) {
-        ui_1.logger.error(error.message || error);
+        logger.error(error.message || error);
         process.exit(1);
     }
 });
@@ -448,9 +443,9 @@ program.command('run-targets <targets...>')
     .option('--no-coverage', 'Skip coverage generation')
     .action(async (targets, options) => {
     try {
-        ui_1.logger.info(`Running targets: ${targets.join(', ')}`);
-        const derivedDataPath = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'cover-targets-'));
-        const resultBundlePath = path_1.default.join(derivedDataPath, 'TestResult.xcresult');
+        logger.info(`Running targets: ${targets.join(', ')}`);
+        const derivedDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cover-targets-'));
+        const resultBundlePath = path.join(derivedDataPath, 'TestResult.xcresult');
         let baseArgs = [];
         if (options.workspace) {
             baseArgs.push('-workspace', options.workspace);
@@ -459,12 +454,12 @@ program.command('run-targets <targets...>')
             baseArgs.push('-project', options.project);
         }
         else {
-            const workspaces = await (0, glob_1.glob)('*.xcworkspace');
+            const workspaces = await glob('*.xcworkspace');
             if (workspaces.length > 0) {
                 baseArgs.push('-workspace', workspaces[0]);
             }
             else {
-                const projects = await (0, glob_1.glob)('*.xcodeproj');
+                const projects = await glob('*.xcodeproj');
                 if (projects.length > 0) {
                     baseArgs.push('-project', projects[0]);
                 }
@@ -483,8 +478,8 @@ program.command('run-targets <targets...>')
         for (const target of targets) {
             testArgs.push('-only-testing', target);
         }
-        const testSpin = (0, ui_1.spinner)(`Running tests for ${targets.length} target(s)...`).start();
-        const subprocess = (0, execa_1.execa)('xcodebuild', testArgs, {
+        const testSpin = spinner(`Running tests for ${targets.length} target(s)...`).start();
+        const subprocess = execa('xcodebuild', testArgs, {
             all: true,
             stdio: ['ignore', 'pipe', 'pipe']
         });
@@ -500,15 +495,15 @@ program.command('run-targets <targets...>')
         const { all } = await subprocess;
         testSpin.succeed(`Tests completed for ${targets.length} target(s).`);
         if (options.coverage !== false) {
-            ui_1.logger.info('Processing coverage...');
-            const coverageJson = await (0, xcode_1.getCoverageData)(resultBundlePath);
-            const report = (0, coverage_1.processCoverageLegacy)(coverageJson, []);
-            (0, ui_1.printCoverageTable)(report);
+            logger.info('Processing coverage...');
+            const coverageJson = await getCoverageData(resultBundlePath);
+            const report = processCoverageLegacy(coverageJson, []);
+            printCoverageTable(report);
         }
-        ui_1.logger.success('Test run completed successfully.');
+        logger.success('Test run completed successfully.');
     }
     catch (error) {
-        ui_1.logger.error(error.message || error);
+        logger.error(error.message || error);
         process.exit(1);
     }
 });
@@ -528,32 +523,32 @@ program.command('pr-coverage')
         const verbose = options.verbose || false;
         const threshold = parseFloat(options.threshold);
         const strict = options.strict || false;
-        ui_1.logger.info('Calculating PR line coverage...');
+        logger.info('Calculating PR line coverage...');
         // 1. Validate base branch exists
         if (verbose)
-            ui_1.logger.info(`Validating base branch: ${options.base}`);
-        const branchExists = await (0, git_1.validateBranchExists)(options.base);
+            logger.info(`Validating base branch: ${options.base}`);
+        const branchExists = await validateBranchExists(options.base);
         if (!branchExists) {
-            ui_1.logger.error(`Base branch '${options.base}' does not exist. Try 'git fetch origin ${options.base}' first.`);
+            logger.error(`Base branch '${options.base}' does not exist. Try 'git fetch origin ${options.base}' first.`);
             process.exit(1);
         }
         // 2. Get line-level diff
         if (verbose)
-            ui_1.logger.info('Getting line-level diff...');
-        const diffResult = await (0, git_1.getChangedSwiftLines)(options.base);
+            logger.info('Getting line-level diff...');
+        const diffResult = await getChangedSwiftLines(options.base);
         if (diffResult.files.length === 0) {
-            ui_1.logger.success('No changed Swift/ObjC files found.');
+            logger.success('No changed Swift/ObjC files found.');
             return;
         }
-        ui_1.logger.info(`Found ${diffResult.files.length} changed file(s) with ${diffResult.totalAddedLines} new/updated lines`);
+        logger.info(`Found ${diffResult.files.length} changed file(s) with ${diffResult.totalAddedLines} new/updated lines`);
         // 3. Find or generate coverage data
         let coverageData;
         let coverageFormat = 'xccov';
         if (options.manifest) {
             // Use manifest file
             if (verbose)
-                ui_1.logger.info(`Loading manifest: ${options.manifest}`);
-            coverageData = await (0, coverage_formats_1.parseCoverageArtifacts)({
+                logger.info(`Loading manifest: ${options.manifest}`);
+            coverageData = await parseCoverageArtifacts({
                 manifestPath: options.manifest,
                 parserOptions: { verbose, fast: options.fast }
             });
@@ -564,8 +559,8 @@ program.command('pr-coverage')
                 coverageFormat = options.coverageFormat;
             }
             if (verbose)
-                ui_1.logger.info(`Parsing coverage from: ${options.coveragePath.join(', ')}`);
-            coverageData = await (0, coverage_formats_1.parseCoverageArtifacts)({
+                logger.info(`Parsing coverage from: ${options.coveragePath.join(', ')}`);
+            coverageData = await parseCoverageArtifacts({
                 format: coverageFormat,
                 paths: options.coveragePath,
                 parserOptions: { verbose, fast: options.fast }
@@ -573,22 +568,22 @@ program.command('pr-coverage')
         }
         else {
             // Try to auto-detect coverage source
-            const manifest = (0, coverage_formats_1.findManifest)();
+            const manifest = findManifest();
             if (manifest) {
                 if (verbose)
-                    ui_1.logger.info(`Found manifest: ${manifest}`);
-                coverageData = await (0, coverage_formats_1.parseCoverageArtifacts)({
+                    logger.info(`Found manifest: ${manifest}`);
+                coverageData = await parseCoverageArtifacts({
                     manifestPath: manifest,
                     parserOptions: { verbose, fast: options.fast }
                 });
             }
             else {
                 // Try to find existing xcresult
-                const xcresult = await (0, coverage_formats_1.findExistingXcresult)();
+                const xcresult = await findExistingXcresult();
                 if (xcresult) {
                     if (verbose)
-                        ui_1.logger.info(`Found xcresult: ${xcresult}`);
-                    coverageData = await (0, coverage_formats_1.parseCoverageArtifacts)({
+                        logger.info(`Found xcresult: ${xcresult}`);
+                    coverageData = await parseCoverageArtifacts({
                         format: 'xccov',
                         paths: [xcresult],
                         parserOptions: { verbose, fast: options.fast }
@@ -596,49 +591,49 @@ program.command('pr-coverage')
                 }
                 else if (options.scheme) {
                     // Run tests to generate coverage
-                    ui_1.logger.info('No coverage found. Running tests to generate coverage...');
-                    const result = await (0, xcode_1.runXcodeTests)(options.scheme, undefined);
+                    logger.info('No coverage found. Running tests to generate coverage...');
+                    const result = await runXcodeTests(options.scheme, undefined);
                     if (!result.success) {
-                        ui_1.logger.error('Tests failed. Cannot generate coverage data.');
+                        logger.error('Tests failed. Cannot generate coverage data.');
                         process.exit(1);
                     }
-                    coverageData = await (0, coverage_formats_1.parseCoverageArtifacts)({
+                    coverageData = await parseCoverageArtifacts({
                         format: 'xccov',
                         paths: [result.xcresultPath],
                         parserOptions: { verbose, fast: options.fast }
                     });
                 }
                 else {
-                    ui_1.logger.error('No coverage data found. Provide --coverage-path, --manifest, or --scheme to generate coverage.');
-                    ui_1.logger.info(`Supported formats: ${(0, coverage_formats_1.getSupportedFormats)().join(', ')}`);
+                    logger.error('No coverage data found. Provide --coverage-path, --manifest, or --scheme to generate coverage.');
+                    logger.info(`Supported formats: ${getSupportedFormats().join(', ')}`);
                     process.exit(1);
                 }
             }
         }
         if (verbose)
-            ui_1.logger.info(`Coverage data loaded for ${coverageData.size} files`);
+            logger.info(`Coverage data loaded for ${coverageData.size} files`);
         // 4. Calculate PR coverage
-        const headCommit = await (0, git_1.getHeadCommit)();
-        const prCoverageResult = await (0, pr_coverage_1.calculatePRCoverage)(diffResult, coverageData, { verbose });
+        const headCommit = await getHeadCommit();
+        const prCoverageResult = await calculatePRCoverage(diffResult, coverageData, { verbose });
         // Fill in metadata
         prCoverageResult.metadata.baseBranch = options.base;
         prCoverageResult.metadata.headCommit = headCommit;
         prCoverageResult.metadata.coverageFormat = coverageFormat;
         prCoverageResult.metadata.fast = options.fast || false;
         // 5. Output report
-        (0, pr_coverage_report_1.printPRCoverageReport)(prCoverageResult, { strict, threshold, verbose });
+        printPRCoverageReport(prCoverageResult, { strict, threshold, verbose });
         // 6. Check threshold
         const passing = prCoverageResult.summary.lineCoveragePercent >= threshold;
         if (passing) {
-            ui_1.logger.success(`PR coverage ${prCoverageResult.summary.lineCoveragePercent.toFixed(1)}% meets threshold of ${threshold}%`);
+            logger.success(`PR coverage ${prCoverageResult.summary.lineCoveragePercent.toFixed(1)}% meets threshold of ${threshold}%`);
         }
         else {
-            ui_1.logger.error(`PR coverage ${prCoverageResult.summary.lineCoveragePercent.toFixed(1)}% is below threshold of ${threshold}%`);
+            logger.error(`PR coverage ${prCoverageResult.summary.lineCoveragePercent.toFixed(1)}% is below threshold of ${threshold}%`);
             process.exit(1);
         }
     }
     catch (error) {
-        ui_1.logger.error(error.message || error);
+        logger.error(error.message || error);
         process.exit(1);
     }
 });

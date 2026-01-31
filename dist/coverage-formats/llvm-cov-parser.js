@@ -1,11 +1,5 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.LlvmCovParser = void 0;
-const base_parser_1 = require("./base-parser");
-const fs_1 = __importDefault(require("fs"));
+import { BaseCoverageParser } from './base-parser.js';
+import fs from 'fs';
 /**
  * Parser for llvm-cov JSON export format.
  *
@@ -35,7 +29,7 @@ const fs_1 = __importDefault(require("fs"));
  * - hasCount (index 3): if true, count is valid
  * - count (index 2): execution count for the region
  */
-class LlvmCovParser extends base_parser_1.BaseCoverageParser {
+export class LlvmCovParser extends BaseCoverageParser {
     format = 'llvm-cov';
     fileExtensions = ['.json'];
     async parse(artifactPaths, options = {}) {
@@ -46,7 +40,7 @@ class LlvmCovParser extends base_parser_1.BaseCoverageParser {
                 console.log(`Parsing llvm-cov JSON file: ${filePath}`);
             }
             try {
-                const content = fs_1.default.readFileSync(filePath, 'utf-8');
+                const content = fs.readFileSync(filePath, 'utf-8');
                 const json = JSON.parse(content);
                 // Verify this is an llvm-cov export
                 if (json.type !== 'llvm.coverage.json.export') {
@@ -145,4 +139,3 @@ class LlvmCovParser extends base_parser_1.BaseCoverageParser {
         return result;
     }
 }
-exports.LlvmCovParser = LlvmCovParser;

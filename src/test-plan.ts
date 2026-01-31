@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { execa } from 'execa';
-import { logger, spinner } from './ui';
+import { logger, spinner } from './ui.js';
 import os from 'os';
 
 export interface TestPlanTarget {

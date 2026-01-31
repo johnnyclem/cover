@@ -2,12 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import inquirer from 'inquirer';
 import { execa } from 'execa';
-import { logger, spinner } from './ui';
-import { setupLLM } from './llm';
-import { updateConfig } from './config';
-import { scanProject, generateStubs } from './generator';
-import { runTestFixLoop } from './fixer';
-import { detectFramework, getAvailableFrameworks } from './frameworks';
+import { logger, spinner } from './ui.js';
+import { setupLLM } from './llm.js';
+import { updateConfig } from './config.js';
+import { scanProject, generateStubs } from './generator.js';
+import { runTestFixLoop } from './fixer.js';
+import { detectFramework, getAvailableFrameworks } from './frameworks/index.js';
 
 export const runInit = async (targetPath: string = '.') => {
     // 0. Path & Permissions

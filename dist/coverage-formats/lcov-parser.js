@@ -1,11 +1,5 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.LcovParser = void 0;
-const base_parser_1 = require("./base-parser");
-const fs_1 = __importDefault(require("fs"));
+import { BaseCoverageParser } from './base-parser.js';
+import fs from 'fs';
 /**
  * Parser for LCOV coverage format (.lcov, .info files).
  *
@@ -26,7 +20,7 @@ const fs_1 = __importDefault(require("fs"));
  * end_of_record
  * ```
  */
-class LcovParser extends base_parser_1.BaseCoverageParser {
+export class LcovParser extends BaseCoverageParser {
     format = 'lcov';
     fileExtensions = ['.lcov', '.info'];
     async parse(artifactPaths, options = {}) {
@@ -37,7 +31,7 @@ class LcovParser extends base_parser_1.BaseCoverageParser {
                 console.log(`Parsing LCOV file: ${filePath}`);
             }
             try {
-                const content = fs_1.default.readFileSync(filePath, 'utf-8');
+                const content = fs.readFileSync(filePath, 'utf-8');
                 const fileResults = this.parseLcovContent(content, verbose);
                 // Merge results
                 for (const [path, coverage] of fileResults) {
@@ -121,4 +115,3 @@ class LcovParser extends base_parser_1.BaseCoverageParser {
         return result;
     }
 }
-exports.LcovParser = LcovParser;

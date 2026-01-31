@@ -11,10 +11,10 @@
  */
 
 import { execa } from 'execa';
-import { logger } from './ui';
-import { TestFailure } from './results';
-import { loadConfig } from './config';
-import { MCPClient } from './mcp-client';
+import { logger } from './ui.js';
+import { TestFailure } from './results.js';
+import { loadConfig } from './config.js';
+import { MCPClient } from './mcp-client.js';
 import {
     XcsiftResult,
     XcsiftParseOptions,
@@ -25,7 +25,7 @@ import {
     XcsiftTestFailure,
     XcsiftSlowTest,
     DEFAULT_XCSIFT_CONFIG
-} from './xcsift-types';
+} from './xcsift-types.js';
 
 // Cache xcsift availability check
 let xcsiftAvailableCache: boolean | null = null;

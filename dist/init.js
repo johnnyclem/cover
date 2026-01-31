@@ -1,64 +1,58 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.runInit = void 0;
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
-const inquirer_1 = __importDefault(require("inquirer"));
-const execa_1 = require("execa");
-const ui_1 = require("./ui");
-const llm_1 = require("./llm");
-const config_1 = require("./config");
-const generator_1 = require("./generator");
-const fixer_1 = require("./fixer");
-const frameworks_1 = require("./frameworks");
-const runInit = async (targetPath = '.') => {
+import fs from 'fs';
+import path from 'path';
+import inquirer from 'inquirer';
+import { execa } from 'execa';
+import { logger, spinner } from './ui.js';
+import { setupLLM } from './llm.js';
+import { updateConfig } from './config.js';
+import { scanProject, generateStubs } from './generator.js';
+import { runTestFixLoop } from './fixer.js';
+import { detectFramework, getAvailableFrameworks } from './frameworks/index.js';
+export const runInit = async (targetPath = '.') => {
     // 0. Path & Permissions
-    const absPath = path_1.default.resolve(targetPath);
-    if (!fs_1.default.existsSync(absPath)) {
-        ui_1.logger.error(`Path does not exist: ${absPath}`);
+    const absPath = path.resolve(targetPath);
+    if (!fs.existsSync(absPath)) {
+        logger.error(`Path does not exist: ${absPath}`);
         process.exit(1);
     }
     try {
         process.chdir(absPath);
         // Test write permission
-        const testFile = path_1.default.join(absPath, '.cover-perm-test');
-        fs_1.default.writeFileSync(testFile, '');
-        fs_1.default.unlinkSync(testFile);
+        const testFile = path.join(absPath, '.cover-perm-test');
+        fs.writeFileSync(testFile, '');
+        fs.unlinkSync(testFile);
     }
     catch (e) {
-        ui_1.logger.error(`Insufficient permissions for ${absPath}`);
+        logger.error(`Insufficient permissions for ${absPath}`);
         process.exit(1);
     }
-    ui_1.logger.info(`Initialized in ${absPath}`);
+    logger.info(`Initialized in ${absPath}`);
     // 1. Git Check
-    const isGit = fs_1.default.existsSync(path_1.default.join(absPath, '.git'));
+    const isGit = fs.existsSync(path.join(absPath, '.git'));
     if (!isGit) {
-        const { initGit } = await inquirer_1.default.prompt([{
+        const { initGit } = await inquirer.prompt([{
                 type: 'confirm',
                 name: 'initGit',
                 message: 'No git repository found. Initialize one?',
                 default: true
             }]);
         if (initGit) {
-            await (0, execa_1.execa)('git', ['init']);
-            ui_1.logger.success('Git repository initialized.');
+            await execa('git', ['init']);
+            logger.success('Git repository initialized.');
         }
         else {
-            ui_1.logger.warn('Proceeding without git (not recommended).');
+            logger.warn('Proceeding without git (not recommended).');
         }
     }
     // 2. Auto-Generate Prompt
-    const { autoGen } = await inquirer_1.default.prompt([{
+    const { autoGen } = await inquirer.prompt([{
             type: 'list',
             name: 'autoGen',
             message: 'Would you like to automatically generate unit tests for your project?',
             choices: ['Yes', 'No']
         }]);
     // Ensure LLM is set up regardless of choice if we need it (Yes needs it, No prompts for it)
-    await (0, llm_1.setupLLM)();
+    await setupLLM();
     // TODO: setupLLM should probably save to config now. 
     // For this prototype, setupLLM sets internal state in llm.ts. 
     // We should ideally sync that state to .coverrc here or inside setupLLM.
@@ -67,13 +61,13 @@ const runInit = async (targetPath = '.') => {
         // 2a. Configure & Infer
         // setupLLM covered the provider prompt.
         // Enhanced framework detection
-        let framework = await (0, frameworks_1.detectFramework)();
+        let framework = await detectFramework();
         if (!framework) {
             framework = 'XCTest'; // Default assumption for Swift projects
         }
-        const availableFrameworks = (0, frameworks_1.getAvailableFrameworks)();
+        const availableFrameworks = getAvailableFrameworks();
         const frameworkChoices = [...availableFrameworks, 'XCTest', 'Other'];
-        const { confirmFramework } = await inquirer_1.default.prompt([{
+        const { confirmFramework } = await inquirer.prompt([{
                 type: 'list',
                 name: 'confirmFramework',
                 message: `Detected testing framework: ${framework}. Is this correct?`,
@@ -81,14 +75,14 @@ const runInit = async (targetPath = '.') => {
             }]);
         let finalFramework = confirmFramework;
         if (finalFramework === 'Other') {
-            const answer = await inquirer_1.default.prompt([{
+            const answer = await inquirer.prompt([{
                     type: 'list',
                     name: 'fw',
                     message: 'Select your testing framework:',
                     choices: availableFrameworks.map(f => ({ name: f, value: f })).concat([{ name: 'Custom', value: 'custom' }])
                 }]);
             if (answer.fw === 'custom') {
-                const customAnswer = await inquirer_1.default.prompt([{
+                const customAnswer = await inquirer.prompt([{
                         type: 'input',
                         name: 'customFramework',
                         message: 'Enter custom framework name:'
@@ -99,25 +93,25 @@ const runInit = async (targetPath = '.') => {
                 finalFramework = answer.fw;
             }
         }
-        (0, config_1.updateConfig)({ framework: finalFramework });
-        ui_1.logger.success('Configuration saved.');
+        updateConfig({ framework: finalFramework });
+        logger.success('Configuration saved.');
     }
     else {
         // 2b. Yes - The Big Plan
-        const scanSpin = (0, ui_1.spinner)('Scanning project...').start();
-        const plan = await (0, generator_1.scanProject)();
+        const scanSpin = spinner('Scanning project...').start();
+        const plan = await scanProject();
         scanSpin.succeed(`Found ${plan.length} source files.`);
-        const stubSpin = (0, ui_1.spinner)('Analyzing code to generate test plan (this may take a while)...').start();
-        const plannedStubs = await (0, generator_1.generateStubs)(plan);
+        const stubSpin = spinner('Analyzing code to generate test plan (this may take a while)...').start();
+        const plannedStubs = await generateStubs(plan);
         stubSpin.succeed('Plan generated.');
         // Show Plan
-        ui_1.logger.info('\nProposed Test Plan:');
+        logger.info('\nProposed Test Plan:');
         plannedStubs.forEach(p => {
             const status = p.exists ? '(Update)' : '(Create)';
-            ui_1.logger.info(`${status} ${p.testPath}`);
-            p.stubs.forEach(s => ui_1.logger.info(`  - ${s}`));
+            logger.info(`${status} ${p.testPath}`);
+            p.stubs.forEach(s => logger.info(`  - ${s}`));
         });
-        const { confirmPlan } = await inquirer_1.default.prompt([{
+        const { confirmPlan } = await inquirer.prompt([{
                 type: 'confirm',
                 name: 'confirmPlan',
                 message: 'Do you want to proceed with this plan?',
@@ -127,20 +121,20 @@ const runInit = async (targetPath = '.') => {
             return;
         // Corktree / Branch
         try {
-            await (0, execa_1.execa)('git', ['checkout', '-b', 'cover/auto-tests']);
-            ui_1.logger.success('Created branch cover/auto-tests');
+            await execa('git', ['checkout', '-b', 'cover/auto-tests']);
+            logger.success('Created branch cover/auto-tests');
         }
         catch (e) {
-            ui_1.logger.warn('Could not create branch (maybe it exists?). Proceeding in current branch.');
+            logger.warn('Could not create branch (maybe it exists?). Proceeding in current branch.');
         }
         // Write Stubs
         for (const item of plannedStubs) {
             // Write stub file
             const stubContent = `
 import XCTest
-@testable import ${path_1.default.basename(item.sourcePath, '.swift')} // naive module name assumption
+@testable import ${path.basename(item.sourcePath, '.swift')} // naive module name assumption
 
-class ${path_1.default.basename(item.testPath, '.swift')}: XCTestCase {
+class ${path.basename(item.testPath, '.swift')}: XCTestCase {
     ${item.stubs.map(s => `
     func ${s}() {
         XCTFail("Not implemented")
@@ -149,19 +143,18 @@ class ${path_1.default.basename(item.testPath, '.swift')}: XCTestCase {
 }
 `;
             // Ensure dir exists
-            fs_1.default.mkdirSync(path_1.default.dirname(item.testPath), { recursive: true });
-            fs_1.default.writeFileSync(item.testPath, stubContent);
+            fs.mkdirSync(path.dirname(item.testPath), { recursive: true });
+            fs.writeFileSync(item.testPath, stubContent);
         }
-        ui_1.logger.success('Stubs created. Starting Implementation & Fix Loop...');
+        logger.success('Stubs created. Starting Implementation & Fix Loop...');
         // Run Fix Loop
         // We need a scheme.
-        const { scheme } = await inquirer_1.default.prompt([{
+        const { scheme } = await inquirer.prompt([{
                 type: 'input',
                 name: 'scheme',
                 message: 'Enter Xcode Scheme to run newly created tests:',
                 validate: (s) => s.length > 0
             }]);
-        await (0, fixer_1.runTestFixLoop)(scheme, undefined, 5); // Give it 5 retries
+        await runTestFixLoop(scheme, undefined, 5); // Give it 5 retries
     }
 };
-exports.runInit = runInit;

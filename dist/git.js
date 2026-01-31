@@ -1,55 +1,49 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.expandHunksToLines = exports.getChangedSwiftLines = exports.getChangedLinesPerFile = exports.validateBranchExists = exports.getHeadCommit = exports.getCurrentBranch = exports.getChangedFiles = void 0;
-const execa_1 = require("execa");
-const ui_1 = require("./ui");
+import { execa } from 'execa';
+import { logger } from './ui.js';
 /**
  * Get list of changed file names between base branch and HEAD.
  * Filters to only Swift/ObjC source files.
  */
-const getChangedFiles = async (baseBranch = 'main') => {
+export const getChangedFiles = async (baseBranch = 'main') => {
     try {
         // Calculate merge base to compare working tree against common ancestor
-        const { stdout: mergeBase } = await (0, execa_1.execa)('git', ['merge-base', baseBranch, 'HEAD']);
-        const { stdout } = await (0, execa_1.execa)('git', ['diff', '--name-only', mergeBase.trim()]);
+        const { stdout: mergeBase } = await execa('git', ['merge-base', baseBranch, 'HEAD']);
+        const { stdout } = await execa('git', ['diff', '--name-only', mergeBase.trim()]);
         const files = stdout.split('\n').filter(Boolean);
         return files.filter(f => f.endsWith('.swift') || f.endsWith('.m') || f.endsWith('.mm'));
     }
     catch (error) {
-        ui_1.logger.error(`Failed to get git diff against ${baseBranch}. Ensure you have fetched remote branches.`);
+        logger.error(`Failed to get git diff against ${baseBranch}. Ensure you have fetched remote branches.`);
         throw error;
     }
 };
-exports.getChangedFiles = getChangedFiles;
 /**
  * Get the current branch name.
  */
-const getCurrentBranch = async () => {
-    const { stdout } = await (0, execa_1.execa)('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+export const getCurrentBranch = async () => {
+    const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
     return stdout.trim();
 };
-exports.getCurrentBranch = getCurrentBranch;
 /**
  * Get the current HEAD commit SHA (short form).
  */
-const getHeadCommit = async () => {
-    const { stdout } = await (0, execa_1.execa)('git', ['rev-parse', '--short', 'HEAD']);
+export const getHeadCommit = async () => {
+    const { stdout } = await execa('git', ['rev-parse', '--short', 'HEAD']);
     return stdout.trim();
 };
-exports.getHeadCommit = getHeadCommit;
 /**
  * Validate that a branch exists (locally or as a remote tracking branch).
  */
-const validateBranchExists = async (branch) => {
+export const validateBranchExists = async (branch) => {
     try {
         // Check local branch
-        await (0, execa_1.execa)('git', ['rev-parse', '--verify', branch]);
+        await execa('git', ['rev-parse', '--verify', branch]);
         return true;
     }
     catch {
         try {
             // Check remote branch (origin/branch)
-            await (0, execa_1.execa)('git', ['rev-parse', '--verify', `origin/${branch}`]);
+            await execa('git', ['rev-parse', '--verify', `origin/${branch}`]);
             return true;
         }
         catch {
@@ -57,7 +51,6 @@ const validateBranchExists = async (branch) => {
         }
     }
 };
-exports.validateBranchExists = validateBranchExists;
 /**
  * Parse a unified diff hunk header: @@ -X,Y +A,B @@
  * Returns the new (added) line range.
@@ -93,12 +86,12 @@ const parseHunkHeader = (line) => {
  * Only captures additions (not deletions) since we only care about
  * new/modified lines that need coverage.
  */
-const getChangedLinesPerFile = async (baseBranch = 'main', fileFilter) => {
+export const getChangedLinesPerFile = async (baseBranch = 'main', fileFilter) => {
     try {
         // Calculate merge base to compare working tree against common ancestor
-        const { stdout: mergeBase } = await (0, execa_1.execa)('git', ['merge-base', baseBranch, 'HEAD']);
+        const { stdout: mergeBase } = await execa('git', ['merge-base', baseBranch, 'HEAD']);
         // --unified=0 gives us exact line numbers without context lines
-        const { stdout } = await (0, execa_1.execa)('git', [
+        const { stdout } = await execa('git', [
             'diff',
             '--unified=0',
             mergeBase.trim()
@@ -151,26 +144,24 @@ const getChangedLinesPerFile = async (baseBranch = 'main', fileFilter) => {
         };
     }
     catch (error) {
-        ui_1.logger.error(`Failed to get line-level diff against ${baseBranch}. Ensure you have fetched remote branches.`);
+        logger.error(`Failed to get line-level diff against ${baseBranch}. Ensure you have fetched remote branches.`);
         throw error;
     }
 };
-exports.getChangedLinesPerFile = getChangedLinesPerFile;
 /**
  * Get changed lines for Swift/ObjC files only.
  * Convenience wrapper around getChangedLinesPerFile.
  */
-const getChangedSwiftLines = async (baseBranch = 'main') => {
-    return (0, exports.getChangedLinesPerFile)(baseBranch, (path) => {
+export const getChangedSwiftLines = async (baseBranch = 'main') => {
+    return getChangedLinesPerFile(baseBranch, (path) => {
         return path.endsWith('.swift') || path.endsWith('.m') || path.endsWith('.mm');
     });
 };
-exports.getChangedSwiftLines = getChangedSwiftLines;
 /**
  * Expand diff hunks to individual line numbers.
  * Useful for intersection with coverage data.
  */
-const expandHunksToLines = (hunks) => {
+export const expandHunksToLines = (hunks) => {
     const lines = [];
     for (const hunk of hunks) {
         for (let i = 0; i < hunk.lineCount; i++) {
@@ -179,4 +170,3 @@ const expandHunksToLines = (hunks) => {
     }
     return lines;
 };
-exports.expandHunksToLines = expandHunksToLines;

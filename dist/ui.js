@@ -1,28 +1,18 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
+import chalk from 'chalk';
+import ora from 'ora';
+import Table from 'cli-table3';
+export const logger = {
+    info: (msg) => console.log(chalk.blue(msg)),
+    success: (msg) => console.log(chalk.green(msg)),
+    warn: (msg) => console.log(chalk.yellow(msg)),
+    error: (msg) => console.log(chalk.red(msg)),
+    step: (msg) => console.log(chalk.cyan(`\n➤ ${msg}`)),
 };
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.printCoverageTable = exports.spinner = exports.logger = void 0;
-exports.printXcsiftSummary = printXcsiftSummary;
-exports.printErrors = printErrors;
-exports.printWarnings = printWarnings;
-const chalk_1 = __importDefault(require("chalk"));
-const ora_1 = __importDefault(require("ora"));
-const cli_table3_1 = __importDefault(require("cli-table3"));
-exports.logger = {
-    info: (msg) => console.log(chalk_1.default.blue(msg)),
-    success: (msg) => console.log(chalk_1.default.green(msg)),
-    warn: (msg) => console.log(chalk_1.default.yellow(msg)),
-    error: (msg) => console.log(chalk_1.default.red(msg)),
-    step: (msg) => console.log(chalk_1.default.cyan(`\n➤ ${msg}`)),
+export const spinner = (text) => {
+    return ora(text);
 };
-const spinner = (text) => {
-    return (0, ora_1.default)(text);
-};
-exports.spinner = spinner;
-const printCoverageTable = (files) => {
-    const table = new cli_table3_1.default({
+export const printCoverageTable = (files) => {
+    const table = new Table({
         head: ['File', 'Line Coverage', 'Func Coverage', 'Status'],
         style: { head: ['cyan'] },
     });
@@ -32,16 +22,15 @@ const printCoverageTable = (files) => {
             file.path,
             `${file.lineCoverage.toFixed(2)}%`,
             `${file.functionCoverage.toFixed(2)}%`,
-            isPassing ? chalk_1.default.green('PASS') : chalk_1.default.red('FAIL'),
+            isPassing ? chalk.green('PASS') : chalk.red('FAIL'),
         ]);
     });
     console.log(table.toString());
 };
-exports.printCoverageTable = printCoverageTable;
-function printXcsiftSummary(result) {
+export function printXcsiftSummary(result) {
     const { summary } = result;
     console.log('\nBuild Summary:');
-    console.log(`  Status: ${result.status === 'success' ? chalk_1.default.green('SUCCESS') : chalk_1.default.red('FAILED')}`);
+    console.log(`  Status: ${result.status === 'success' ? chalk.green('SUCCESS') : chalk.red('FAILED')}`);
     console.log(`  Errors: ${summary.errors}`);
     console.log(`  Warnings: ${summary.warnings}`);
     if (summary.passed_tests !== undefined) {
@@ -51,7 +40,7 @@ function printXcsiftSummary(result) {
         console.log(`  Test Time: ${summary.test_time}`);
     }
 }
-function printErrors(errors) {
+export function printErrors(errors) {
     // Group errors by file
     const byFile = {};
     for (const error of errors) {
@@ -60,13 +49,13 @@ function printErrors(errors) {
         byFile[error.file].push(error);
     }
     for (const [file, fileErrors] of Object.entries(byFile)) {
-        console.log(chalk_1.default.red(`\n${file}:`));
+        console.log(chalk.red(`\n${file}:`));
         for (const error of fileErrors) {
-            console.log(`  ${chalk_1.default.gray(`Line ${error.line}:`)} ${error.message}`);
+            console.log(`  ${chalk.gray(`Line ${error.line}:`)} ${error.message}`);
         }
     }
 }
-function printWarnings(warnings) {
+export function printWarnings(warnings) {
     // Group warnings by file
     const byFile = {};
     for (const warning of warnings) {
@@ -75,9 +64,9 @@ function printWarnings(warnings) {
         byFile[warning.file].push(warning);
     }
     for (const [file, fileWarnings] of Object.entries(byFile)) {
-        console.log(chalk_1.default.yellow(`\n${file}:`));
+        console.log(chalk.yellow(`\n${file}:`));
         for (const warning of fileWarnings) {
-            console.log(`  ${chalk_1.default.gray(`Line ${warning.line}:`)} ${warning.message}`);
+            console.log(`  ${chalk.gray(`Line ${warning.line}:`)} ${warning.message}`);
         }
     }
 }

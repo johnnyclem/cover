@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { PRCoverageResult, PRFileCoverage } from './types';
+import { PRCoverageResult, PRFileCoverage } from './types.js';
 
 /**
  * Options for formatting PR coverage reports.

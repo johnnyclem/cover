@@ -1,10 +1,7 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.MCPClient = void 0;
-const index_js_1 = require("@modelcontextprotocol/sdk/client/index.js");
-const stdio_js_1 = require("@modelcontextprotocol/sdk/client/stdio.js");
-const ui_1 = require("./ui");
-class MCPClient {
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { logger } from "./ui.js";
+export class MCPClient {
     serverCommand;
     serverArgs;
     env;
@@ -18,23 +15,23 @@ class MCPClient {
     async connect() {
         try {
             const filteredEnv = Object.fromEntries(Object.entries({ ...process.env, ...this.env }).filter(([_, value]) => value !== undefined));
-            this.transport = new stdio_js_1.StdioClientTransport({
+            this.transport = new StdioClientTransport({
                 command: this.serverCommand,
                 args: this.serverArgs,
                 env: filteredEnv,
             });
-            this.client = new index_js_1.Client({
+            this.client = new Client({
                 name: "cover-mcp-client",
                 version: "1.0.0",
             }, {
                 capabilities: {},
             });
             await this.client.connect(this.transport);
-            ui_1.logger.info(`Connected to MCP server: ${this.serverCommand}`);
+            logger.info(`Connected to MCP server: ${this.serverCommand}`);
             return true;
         }
         catch (error) {
-            ui_1.logger.error(`Failed to connect to MCP server: ${error.message}`);
+            logger.error(`Failed to connect to MCP server: ${error.message}`);
             return false;
         }
     }
@@ -50,7 +47,7 @@ class MCPClient {
             return result;
         }
         catch (error) {
-            ui_1.logger.error(`MCP tool call failed: ${error.message}`);
+            logger.error(`MCP tool call failed: ${error.message}`);
             throw error;
         }
     }
@@ -66,4 +63,3 @@ class MCPClient {
         this.transport = null;
     }
 }
-exports.MCPClient = MCPClient;

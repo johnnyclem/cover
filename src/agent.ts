@@ -1,8 +1,8 @@
 import inquirer from 'inquirer';
 import { execa } from 'execa';
 import fs from 'fs';
-import { logger, spinner } from './ui';
-import { getFixerClient } from './llm';
+import { logger, spinner } from './ui.js';
+import { getFixerClient } from './llm.js';
 
 export const selectAgent = async (): Promise<string> => {
   const answer = await inquirer.prompt([

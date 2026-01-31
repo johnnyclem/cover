@@ -1,6 +1,6 @@
 import { execa } from 'execa';
-import { CoverageFormat, LineCoverageData } from '../types';
-import { BaseCoverageParser, ParserOptions } from './base-parser';
+import { CoverageFormat, LineCoverageData } from '../types.js';
+import { BaseCoverageParser, ParserOptions } from './base-parser.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';

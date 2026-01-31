@@ -1,34 +1,26 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.runTestPlan = exports.getTestTargetsFromPlan = exports.parseTestPlan = void 0;
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
-const execa_1 = require("execa");
-const ui_1 = require("./ui");
-const os_1 = __importDefault(require("os"));
-const parseTestPlan = (planPath) => {
-    if (!fs_1.default.existsSync(planPath)) {
+import fs from 'fs';
+import path from 'path';
+import { execa } from 'execa';
+import { logger, spinner } from './ui.js';
+import os from 'os';
+export const parseTestPlan = (planPath) => {
+    if (!fs.existsSync(planPath)) {
         throw new Error(`Test plan not found: ${planPath}`);
     }
-    const content = fs_1.default.readFileSync(planPath, 'utf-8');
+    const content = fs.readFileSync(planPath, 'utf-8');
     return JSON.parse(content);
 };
-exports.parseTestPlan = parseTestPlan;
-const getTestTargetsFromPlan = (planPath) => {
-    const plan = (0, exports.parseTestPlan)(planPath);
+export const getTestTargetsFromPlan = (planPath) => {
+    const plan = parseTestPlan(planPath);
     return plan.testTargets.map(t => t.target.identifier);
 };
-exports.getTestTargetsFromPlan = getTestTargetsFromPlan;
-const runTestPlan = async (planPath, destination, projectPath, workspacePath, testPlanName) => {
-    const plan = (0, exports.parseTestPlan)(planPath);
+export const runTestPlan = async (planPath, destination, projectPath, workspacePath, testPlanName) => {
+    const plan = parseTestPlan(planPath);
     const targets = plan.testTargets.map(t => t.target.identifier);
-    ui_1.logger.step(`Running test plan: ${planPath}`);
-    ui_1.logger.info(`Test targets: ${targets.join(', ')}`);
-    const derivedDataPath = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'cover-test-plan-'));
-    const resultBundlePath = path_1.default.join(derivedDataPath, 'TestResult.xcresult');
+    logger.step(`Running test plan: ${planPath}`);
+    logger.info(`Test targets: ${targets.join(', ')}`);
+    const derivedDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cover-test-plan-'));
+    const resultBundlePath = path.join(derivedDataPath, 'TestResult.xcresult');
     const baseArgs = [];
     if (workspacePath) {
         baseArgs.push('-workspace', workspacePath);
@@ -58,9 +50,9 @@ const runTestPlan = async (planPath, destination, projectPath, workspacePath, te
     for (const target of targets) {
         testArgs.push('-only-testing', target);
     }
-    const testSpin = (0, ui_1.spinner)(`Running tests for ${targets.length} target(s)...`).start();
+    const testSpin = spinner(`Running tests for ${targets.length} target(s)...`).start();
     try {
-        const subprocess = (0, execa_1.execa)('xcodebuild', testArgs, {
+        const subprocess = execa('xcodebuild', testArgs, {
             all: true,
             stdio: ['ignore', 'pipe', 'pipe']
         });
@@ -107,4 +99,3 @@ const runTestPlan = async (planPath, destination, projectPath, workspacePath, te
         };
     }
 };
-exports.runTestPlan = runTestPlan;
