@@ -25,6 +25,7 @@ import { formatPRCoverageReport, printPRCoverageReport, formatPRCoverageSummaryL
 import { CoverageFormat } from './types.js';
 import { getFlakyTests, printFlakyTestReport } from './flaky.js';
 import { parseOutput } from './xcsift.js';
+import { generateSonarQubeXml } from './sonarqube-export.js';
 
 const program = new Command();
 
@@ -687,6 +688,89 @@ program.command('pr-coverage')
       } else {
         logger.error(`PR coverage ${prCoverageResult.summary.lineCoveragePercent.toFixed(1)}% is below threshold of ${threshold}%`);
         process.exit(1);
+      }
+
+    } catch (error: any) {
+      logger.error(error.message || error);
+      process.exit(1);
+    }
+  });
+
+program.command('sonarqube')
+  .description('Generate SonarQube Generic Coverage XML from coverage data')
+  .option('--coverage-format <format>', 'Coverage format (xccov, lcov, jacoco, llvm-cov)')
+  .option('--coverage-path <paths...>', 'Path(s) to coverage artifacts (supports globs)')
+  .option('--manifest <path>', 'Path to coverage manifest JSON file')
+  .option('-o, --output <file>', 'Output file (default: stdout)')
+  .option('--strip-prefix <prefix>', 'Strip prefix from file paths to make them relative')
+  .option('-v, --verbose', 'Show detailed debug output')
+  .action(async (options) => {
+    try {
+      const verbose = options.verbose || false;
+
+      if (verbose) logger.info('Generating SonarQube coverage XML...');
+
+      // 1. Find or load coverage data (same resolution pattern as pr-coverage)
+      let coverageData: Map<string, any>;
+      let coverageFormat: CoverageFormat = 'xccov';
+
+      const parserOptions = { verbose, fast: false, useArchive: true };
+
+      if (options.manifest) {
+        if (verbose) logger.info(`Loading manifest: ${options.manifest}`);
+        coverageData = await parseCoverageArtifacts({
+          manifestPath: options.manifest,
+          parserOptions,
+        });
+      } else if (options.coveragePath && options.coveragePath.length > 0) {
+        if (options.coverageFormat) {
+          coverageFormat = options.coverageFormat as CoverageFormat;
+        }
+        if (verbose) logger.info(`Parsing coverage from: ${options.coveragePath.join(', ')}`);
+        coverageData = await parseCoverageArtifacts({
+          format: coverageFormat,
+          paths: options.coveragePath,
+          parserOptions,
+        });
+      } else {
+        // Auto-detect
+        const manifest = findManifest();
+        if (manifest) {
+          if (verbose) logger.info(`Found manifest: ${manifest}`);
+          coverageData = await parseCoverageArtifacts({
+            manifestPath: manifest,
+            parserOptions,
+          });
+        } else {
+          const xcresult = await findExistingXcresult();
+          if (xcresult) {
+            if (verbose) logger.info(`Found xcresult: ${xcresult}`);
+            coverageData = await parseCoverageArtifacts({
+              format: 'xccov',
+              paths: [xcresult],
+              parserOptions,
+            });
+          } else {
+            logger.error('No coverage data found. Provide --coverage-path or --manifest.');
+            logger.info(`Supported formats: ${getSupportedFormats().join(', ')}`);
+            process.exit(1);
+          }
+        }
+      }
+
+      if (verbose) logger.info(`Coverage data loaded for ${coverageData.size} files`);
+
+      // 2. Generate XML
+      const xml = generateSonarQubeXml(coverageData, {
+        stripPrefix: options.stripPrefix,
+      });
+
+      // 3. Output
+      if (options.output) {
+        fs.writeFileSync(options.output, xml + '\n');
+        logger.info(`SonarQube coverage XML written to ${options.output}`);
+      } else {
+        process.stdout.write(xml + '\n');
       }
 
     } catch (error: any) {

@@ -95,4 +95,12 @@ export interface ParserOptions {
    * Use cached data if available.
    */
   useCache?: boolean;
+
+  /**
+   * Use xccov --archive mode for coverage data extraction.
+   * This matches the approach used by xccov-to-sonarqube.sh and produces
+   * coverage numbers consistent with SonarQube.
+   * Defaults to true for xccov format.
+   */
+  useArchive?: boolean;
 }
